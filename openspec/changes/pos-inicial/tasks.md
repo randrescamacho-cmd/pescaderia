@@ -1,0 +1,138 @@
+# Tasks: POS de escritorio "Bahía de los Ángeles" (pos-inicial)
+
+## Review Workload Forecast
+
+| Field | Value |
+|-------|-------|
+| Estimated changed lines | ~2,600-3,200 (11 phases, ~45-55 new files) |
+| 400-line budget risk | High |
+| Chained PRs recommended | Yes |
+| Suggested split | PR1 setup+DB, PR2 auth+catálogo, PR3 ventas+caja, PR4 créditos+reporte+impresión, PR5 empaquetado/CI+validación |
+| Delivery strategy | ask-on-risk (none received explicitly; using shared default) |
+| Chain strategy | pending |
+
+Decision needed before apply: Yes
+Chained PRs recommended: Yes
+Chain strategy: pending
+400-line budget risk: High
+
+### Suggested Work Units
+
+| Unit | Goal | Likely PR | Notes |
+|------|------|-----------|-------|
+| 1 | Setup + DB schema/migrations (Phases 1-2) | PR 1 | Foundation; ~500-600 lines; nothing else can start without it |
+| 2 | Auth PIN + Catálogo (Phases 3-4) | PR 2 | Depends on PR 1 (roles/products tables) |
+| 3 | Ventas + Caja (Phases 5-6) | PR 3 | Depends on PR 2 (auth guard, catalog lookup) |
+| 4 | Créditos + Corte del Día + Impresión (Phases 7-9) | PR 4 | Depends on PR 3 (sales/shift data) |
+| 5 | Empaquetado/CI + Validación en sitio (Phases 10-11) | PR 5 | Depends on PR 4; no app logic, safe to isolate |
+
+## Phase 1: Setup del Proyecto
+
+- [ ] 1.1 Scaffold with `electron-vite` React+TS template; verify dev run
+- [ ] 1.2 Enable strict TS in root/main/renderer `tsconfig.json`
+- [ ] 1.3 Create folders: `src/main/{db,ipc,printing,auth}`, `src/renderer/{screens,components}`
+- [ ] 1.4 Add `electron-builder.yml` (mac target, dmg, arm64/x64)
+- [ ] 1.5 Check bundled Node's `node:sqlite` flag need; add `--experimental-sqlite` switch in `main/index.ts` before `app.ready` if required
+
+## Phase 2: Esquema de BD y Migraciones
+
+- [ ] 2.1 `src/main/db/connection.ts` — open `node:sqlite`, enable `PRAGMA foreign_keys`
+- [ ] 2.2 `src/main/db/migrations/index.ts` migration `1:init` — all tables per design.md (roles, departments, products, shifts, cash_movements, sales, sale_lines, sale_payments, customers, customer_credits, credit_payments, schema_migrations)
+- [ ] 2.3 Migration runner: create `schema_migrations`, apply pending versions in a transaction on startup
+- [ ] 2.4 Migration `2:seed_roles` — insert `usuario`/`administrador` rows with placeholder PIN
+- [ ] 2.5 Migration `3:seed_departments` — insert known departments (Saldos, Mariscos, Venta de Pescado, etc.)
+- [ ] 2.6 Mirror `db/schema.sql` (docs only, non-runtime)
+- [ ] 2.7 RED: `node:test` — migrations apply in order on temp SQLite file
+- [ ] 2.8 GREEN: make migration runner pass 2.7
+
+## Phase 3: Autenticación por PIN de Rol
+
+- [ ] 3.1 `src/main/auth/pin.ts` — `scryptSync` hash + `timingSafeEqual` verify
+- [ ] 3.2 RED: `node:test` — hash/verify correctness, wrong PIN rejected
+- [ ] 3.3 GREEN: implement 3.1 to pass 3.2
+- [ ] 3.4 IPC `auth:login` — compare PIN vs both role hashes
+- [ ] 3.5 IPC `auth:changePin` — Administrador-only, rehash + update role row
+- [ ] 3.6 `preload.ts` — expose `auth.login`/`auth.changePin` via `contextBridge`
+- [ ] 3.7 Renderer: Login screen with numeric keypad
+- [ ] 3.8 Renderer: in-memory session state (role), no persistence across restarts
+
+## Phase 4: Catálogo (Departamentos y Productos)
+
+- [ ] 4.1 IPC `catalog:listDepartments/createDepartment/updateDepartment/deleteDepartment` (soft-delete `active`, block delete if active products reference it)
+- [ ] 4.2 IPC `catalog:listProducts/createProduct/updateProduct/deleteProduct` — validate price > 0, department required
+- [ ] 4.3 IPC `catalog:findByBarcode`
+- [ ] 4.4 Role guard middleware: reject Admin-only IPC calls when session role = `usuario`
+- [ ] 4.5 RED: `node:test` — delete-department-with-products rejected; product without department rejected
+- [ ] 4.6 GREEN: implement 4.1/4.2 validations to pass 4.5
+- [ ] 4.7 Renderer: Departamentos screen (Admin only) — CRUD + blocked-delete message
+- [ ] 4.8 Renderer: Productos screen (Admin only) — CRUD form (name, price, cost, department, barcode)
+
+## Phase 5: Ventas
+
+- [ ] 5.1 IPC `sales:create` — transaction insert `sales`+`sale_lines` (snapshot dept/cost/price)+`sale_payments`
+- [ ] 5.2 Validate: quantity > 0 per line; sale must have ≥1 line
+- [ ] 5.3 Validate: sum of payment portions == total; `credito` portion requires customer
+- [ ] 5.4 RED: `node:test` — split-sum mismatch rejected, empty sale rejected, credito-without-customer rejected
+- [ ] 5.5 GREEN: implement 5.1-5.3 to pass 5.4
+- [ ] 5.6 Renderer: Ventas screen — line entry, running total, remove line
+- [ ] 5.7 Renderer: barcode buffer listener (`keydown` gap <50ms + Enter heuristic)
+- [ ] 5.8 Renderer: "producto no encontrado" toast on unknown barcode
+- [ ] 5.9 Renderer: split-payment modal (efectivo/tarjeta/credito) with customer picker for credito
+- [ ] 5.10 Wire sale-close success to ticket printing IPC (Phase 9)
+
+## Phase 6: Caja
+
+- [ ] 6.1 IPC `cash:openShift` — reject if an open shift already exists
+- [ ] 6.2 IPC `cash:cashIn`/`cash:cashOut` — proveedor+motivo required on salida
+- [ ] 6.3 IPC `cash:closeShift` — compute expected cash, accept counted cash, store difference
+- [ ] 6.4 RED: `node:test` — second-open rejected, salida-without-motivo rejected, reconciliation formula ($700+$900-$300=$1,300)
+- [ ] 6.5 GREEN: implement 6.1-6.3 to pass 6.4
+- [ ] 6.6 Renderer: Apertura de turno screen
+- [ ] 6.7 Renderer: Entradas/Salidas screen
+- [ ] 6.8 Renderer: Cierre de turno screen showing expected vs counted diff
+
+## Phase 7: Créditos de Clientes
+
+- [ ] 7.1 IPC `credit:grant` — create customer if new, insert `customer_credits`
+- [ ] 7.2 IPC `credit:pay` — insert `credit_payments`, clamp/reject if amount > balance
+- [ ] 7.3 IPC `credit:balance` — `SUM(customer_credits) - SUM(credit_payments)`
+- [ ] 7.4 RED: `node:test` — overpay clamped/rejected, partial payment reduces balance correctly
+- [ ] 7.5 GREEN: implement 7.1-7.3 to pass 7.4
+- [ ] 7.6 Renderer: customer picker/creator inside split-payment modal (5.9)
+- [ ] 7.7 Renderer: Créditos screen — list balances, register payment
+
+## Phase 8: Corte del Día
+
+- [ ] 8.1 IPC `reports:dailyCut` — 9 section queries per `shift_id` (per design.md table)
+- [ ] 8.2 Ganancia del día: missing-cost=0 + count-of-uncosted-products warning
+- [ ] 8.3 "NO HUBO PAGOS" literal string when no credit payments that shift
+- [ ] 8.4 RED: `node:test` — all 9 formulas incl. cash-reconciliation cross-check, ganancia-with-missing-cost
+- [ ] 8.5 GREEN: implement 8.1-8.3 to pass 8.4
+- [ ] 8.6 Renderer: Corte del Día screen — fixed 9-section order, warning banner
+- [ ] 8.7 Renderer: open-shift preview mode (SHOULD, non-blocking)
+
+## Phase 9: Impresión de Tickets
+
+- [ ] 9.1 `src/main/printing/ticket-template.ts` — sale-ticket HTML builder
+- [ ] 9.2 Extend `ticket-template.ts` — Corte del Día HTML (9 sections)
+- [ ] 9.3 CSS `@page { size: 80mm auto; margin:0 }`, monospace body, no clipped fields
+- [ ] 9.4 `src/main/printing/print.ts` — hidden `BrowserWindow` + `webContents.print()`
+- [ ] 9.5 IPC `print:sale`/`print:dailyCut`
+- [ ] 9.6 Error path: printer unavailable — surface error, allow retry without losing saved sale/report data
+
+## Phase 10: Empaquetado y CI
+
+- [ ] 10.1 `src/main/preload.ts` — `contextBridge.exposeInMainWorld` full API surface
+- [ ] 10.2 `src/main/index.ts` — `BrowserWindow` lifecycle, `contextIsolation:true`, `nodeIntegration:false`
+- [ ] 10.3 `.github/workflows/build-mac.yml` per design.md (macos-latest, arm64/x64 matrix)
+- [ ] 10.4 Ad-hoc codesign step (`codesign --force --deep --sign -`) before dmg packaging
+- [ ] 10.5 `--prepackaged` dmg build step from signed `.app`
+- [ ] 10.6 Tag-triggered upload to GitHub Releases
+
+## Phase 11: Validación en Sitio
+
+- [ ] 11.1 Confirm exact thermal printer model + macOS version on client Mac
+- [ ] 11.2 Print real test ticket, verify 80mm layout with real product names
+- [ ] 11.3 Scan real barcode end-to-end with USB-HID scanner
+- [ ] 11.4 Verify Gatekeeper bypass (right-click → Abrir) unlocks normal double-click launch after
+- [ ] 11.5 Full offline E2E: abrir turno → venta con pago dividido → cerrar turno → imprimir corte

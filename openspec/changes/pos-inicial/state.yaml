@@ -1,0 +1,39 @@
+change: pos-inicial
+created: 2026-09-10
+artifact_store: openspec
+execution_mode: interactive
+delivery_strategy: ask-on-risk
+
+phases:
+  explore:
+    status: done
+    artifact: exploration.md
+  proposal:
+    status: done
+    artifact: proposal.md
+    depends_on: []
+  specs:
+    status: done
+    artifact: specs/{catalog-management,sales-transactions,cash-register,customer-credit,daily-report,auth-roles,ticket-printing}/spec.md
+    depends_on: [proposal]
+  design:
+    status: done
+    artifact: design.md
+    depends_on: [proposal]
+  tasks:
+    status: done
+    artifact: tasks.md
+    depends_on: [specs, design]
+    review_workload_forecast:
+      risk: high
+      chained_prs_recommended: true
+      decision_needed_before_apply: true
+  apply:
+    status: pending
+    depends_on: [tasks]
+  verify:
+    status: pending
+    depends_on: [apply]
+  archive:
+    status: pending
+    depends_on: [verify]

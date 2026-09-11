@@ -1,0 +1,68 @@
+schema: spec-driven
+
+context: |
+  Tech stack: por decidir (Tauri o Electron) + SQLite local en disco
+  Architecture: app de escritorio instalable, offline-first, una sola terminal (una Mac)
+  Testing: por definir en fase de tasks
+  Style: sin convenciones previas (proyecto nuevo, carpeta vacia al iniciar)
+
+  Negocio: tienda "Bahia de los Angeles" que vende mariscos, souvenirs, ropa y
+  accesorios, juguetes y refrescos. Reemplaza un sistema de punto de venta ya
+  existente (probablemente Windows) del cual se tiene un ticket de "Corte del
+  Dia" como referencia de formato y funcionalidad esperada.
+
+  Roles y accesos:
+  - Dos roles: Usuario (cajero) y Administrador, cada uno con su propio
+    PIN/clave compartido por rol (NO cuentas individuales por empleado — no
+    se requiere saber quien hizo cada venta, solo el nivel de acceso).
+  - El Administrador puede crear/editar/eliminar los departamentos de la
+    tienda (lista configurable, no hardcodeada). Cada producto pertenece a
+    UN departamento fijo (no es una etiqueta multiple).
+  - Departamentos de ejemplo ya conocidos: Saldos, Juguetes, Ropa y
+    Accesorios, Dulces, Sodas, Venta de Pescado, Mariscos, Souvenir, Coca
+    Cola. "Saldos" es un departamento normal mas (no una etiqueta de
+    liquidacion transversal a otros departamentos).
+
+  Pagos: una venta puede dividir su pago en varias porciones (efectivo,
+  tarjeta, credito) que deben sumar el total de la venta (split-tender
+  confirmado). Costo de producto faltante se trata como 0 en "Ganancia
+  del dia" con advertencia visible del numero de productos sin costo
+  (confirmado, no excluir la venta del calculo).
+
+  Impresora termica: papel de 80mm (confirmado por el usuario a partir del
+  ticket de referencia). El CSS del ticket debe usar @page { size: 80mm auto }.
+
+  Restricciones duras:
+  - Debe funcionar 100% sin internet (el lugar pierde luz/internet seguido)
+  - Debe sentirse como app instalada (icono en Dock), no abrir el navegador
+  - Escaner de codigo de barras: dispositivo USB tipo teclado (HID), sin driver especial
+  - Impresora termica de recibos: SI tiene driver nativo de macOS (aparece como
+    impresora normal), por lo que se puede imprimir con el dialogo nativo del
+    sistema sin necesidad de comandos ESC/POS crudos por USB/serial
+  - Maquina de desarrollo del usuario es Windows; el despliegue final es en la
+    Mac del cliente (compilacion para Mac requiere macOS o CI con runner macOS)
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Justificar la eleccion entre Tauri y Electron con tradeoffs explicitos
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Definir estrategia de build/empaquetado para Mac desde una maquina Windows
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
