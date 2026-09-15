@@ -58,11 +58,12 @@ rules:
     - Keep tasks completable in one session
   apply:
     - Follow existing code patterns
-    tdd: false
-    test_command: ""
+    - Strict TDD Mode ACTIVE (usuario global setting) - RED antes de GREEN, sin excepciones
+    tdd: true
+    test_command: "npx vitest run"
   verify:
-    test_command: ""
-    build_command: ""
+    test_command: "npx vitest run"
+    build_command: "npm run build"
     coverage_threshold: 0
   archive:
     - Warn before merging destructive deltas
