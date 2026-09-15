@@ -28,22 +28,22 @@ Chain strategy: pending
 
 ## Phase 1: Setup del Proyecto
 
-- [ ] 1.1 Scaffold with `electron-vite` React+TS template; verify dev run
-- [ ] 1.2 Enable strict TS in root/main/renderer `tsconfig.json`
-- [ ] 1.3 Create folders: `src/main/{db,ipc,printing,auth}`, `src/renderer/{screens,components}`
-- [ ] 1.4 Add `electron-builder.yml` (mac target, dmg, arm64/x64)
-- [ ] 1.5 Check bundled Node's `node:sqlite` flag need; add `--experimental-sqlite` switch in `main/index.ts` before `app.ready` if required
+- [x] 1.1 Scaffold with `electron-vite` React+TS template; verify dev run
+- [x] 1.2 Enable strict TS in root/main/renderer `tsconfig.json`
+- [x] 1.3 Create folders: `src/main/{db,ipc,printing,auth}`, `src/renderer/{screens,components}`
+- [x] 1.4 Add `electron-builder.yml` (mac target, dmg, arm64/x64)
+- [x] 1.5 Check bundled Node's `node:sqlite` flag need; add `--experimental-sqlite` switch in `main/index.ts` before `app.ready` if required
 
 ## Phase 2: Esquema de BD y Migraciones
 
-- [ ] 2.1 `src/main/db/connection.ts` — open `node:sqlite`, enable `PRAGMA foreign_keys`
-- [ ] 2.2 `src/main/db/migrations/index.ts` migration `1:init` — all tables per design.md (roles, departments, products, shifts, cash_movements, sales, sale_lines, sale_payments, customers, customer_credits, credit_payments, schema_migrations)
-- [ ] 2.3 Migration runner: create `schema_migrations`, apply pending versions in a transaction on startup
-- [ ] 2.4 Migration `2:seed_roles` — insert `usuario`/`administrador` rows with placeholder PIN
-- [ ] 2.5 Migration `3:seed_departments` — insert known departments (Saldos, Mariscos, Venta de Pescado, etc.)
-- [ ] 2.6 Mirror `db/schema.sql` (docs only, non-runtime)
-- [ ] 2.7 RED: `node:test` — migrations apply in order on temp SQLite file
-- [ ] 2.8 GREEN: make migration runner pass 2.7
+- [x] 2.1 `src/main/db/connection.ts` — open `node:sqlite`, enable `PRAGMA foreign_keys`
+- [x] 2.2 `src/main/db/migrations/index.ts` migration `1:init` — all tables per design.md (roles, departments, products, shifts, cash_movements, sales, sale_lines, sale_payments, customers, customer_credits, credit_payments, schema_migrations)
+- [x] 2.3 Migration runner: create `schema_migrations`, apply pending versions in a transaction on startup
+- [x] 2.4 Migration `2:seed_roles` — insert `usuario`/`administrador` rows with placeholder PIN
+- [x] 2.5 Migration `3:seed_departments` — insert known departments (Saldos, Mariscos, Venta de Pescado, etc.)
+- [x] 2.6 Mirror `db/schema.sql` (docs only, non-runtime)
+- [x] 2.7 RED: test — migrations apply in order on temp SQLite file (usando `vitest`, no `node:test`; ver apply-progress.md Deviations — `openspec/config.yaml` fija `test_command: npx vitest run` como runner del proyecto)
+- [x] 2.8 GREEN: make migration runner pass 2.7
 
 ## Phase 3: Autenticación por PIN de Rol
 
