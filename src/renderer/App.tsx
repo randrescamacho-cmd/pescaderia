@@ -1,11 +1,67 @@
-// Placeholder de arranque (Fase 1: Setup). Las pantallas reales (login,
-// ventas, catalogo, caja, creditos, corte del dia) llegan en fases
-// posteriores -- ver openspec/changes/pos-inicial/tasks.md Fases 3-9.
-function App() {
+import { useState } from 'react'
+import { api } from './ipc-client'
+import Departamentos from './screens/Departamentos'
+import Login from './screens/Login'
+import Productos from './screens/Productos'
+import type { Role } from '../shared/ipc-types'
+
+type Screen = 'home' | 'departamentos' | 'productos'
+
+/**
+ * Estado de sesion del renderer (design.md: "vive en memoria del renderer,
+ * no se persiste"). Es una COPIA para efectos de UI (mostrar/ocultar
+ * pantallas de Admin) -- la fuente de verdad que realmente bloquea acciones
+ * es el guard en el main process (`src/main/auth/session.ts`, ver la nota de
+ * deviation ahi). Sin router: solo 3 pantallas en este PR (login,
+ * departamentos, productos); Ventas/Caja/Creditos/Corte llegan en PRs
+ * posteriores (tasks.md Fases 5-9).
+ */
+function App(): React.JSX.Element {
+  const [role, setRole] = useState<Role | null>(null)
+  const [screen, setScreen] = useState<Screen>('home')
+
+  async function handleLogout(): Promise<void> {
+    await api.auth.logout()
+    setRole(null)
+    setScreen('home')
+  }
+
+  if (!role) {
+    return <Login onLogin={setRole} />
+  }
+
   return (
     <main>
-      <h1>Pescaderia POS - Bahia de los Angeles</h1>
-      <p>Fase 1 (Setup) y Fase 2 (Esquema de BD) completadas.</p>
+      <header>
+        <h1>Pescaderia POS - Bahia de los Angeles</h1>
+        <p>
+          Sesion activa: <strong>{role}</strong>
+        </p>
+        <nav>
+          <button type="button" onClick={() => setScreen('home')}>
+            Inicio
+          </button>
+          {role === 'administrador' && (
+            <>
+              <button type="button" onClick={() => setScreen('departamentos')}>
+                Departamentos
+              </button>
+              <button type="button" onClick={() => setScreen('productos')}>
+                Productos
+              </button>
+            </>
+          )}
+          <button type="button" onClick={handleLogout}>
+            Cerrar sesion
+          </button>
+        </nav>
+      </header>
+
+      {screen === 'home' && (
+        <p>Fase 3 (Autenticacion) y Fase 4 (Catalogo) completadas. Ventas y caja llegan en el siguiente PR.</p>
+      )}
+      {screen === 'departamentos' && role === 'administrador' && <Departamentos />}
+      {screen === 'productos' && role === 'administrador' && <Productos />}
     </main>
   )
 }

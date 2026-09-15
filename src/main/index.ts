@@ -1,7 +1,10 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { createSessionStore } from './auth/session'
 import { createConnection } from './db/connection'
 import { runMigrations } from './db/migrate'
+import { registerAuthIpc } from './ipc/auth'
+import { registerCatalogIpc } from './ipc/catalog'
 import { needsExperimentalSqliteFlag } from './node-version'
 
 // Task 1.5: agrega el flag `--experimental-sqlite` ANTES de app.ready solo si
@@ -49,6 +52,14 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const db = createConnection(getDbPath())
   runMigrations(db)
+
+  // Fase 3/4: la sesion (rol activo) vive en memoria del proceso principal
+  // -- ver src/main/auth/session.ts para la justificacion de por que no vive
+  // solo en el renderer. Se crea una unica vez por arranque de la app y se
+  // pierde al cerrarla (nunca se persiste a disco).
+  const session = createSessionStore()
+  registerAuthIpc(ipcMain, db, session)
+  registerCatalogIpc(ipcMain, db, session)
 
   createWindow()
 
