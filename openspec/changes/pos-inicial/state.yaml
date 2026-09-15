@@ -12,7 +12,7 @@ pr_plan:
     verdict: PASS (0 CRITICAL, 2 WARNING no bloqueantes, 2 SUGGESTION)
   - id: PR2
     scope: "Auth PIN + Catalogo (Fases 3-4)"
-    status: pending
+    status: in_progress
   - id: PR3
     scope: "Ventas + Caja (Fases 5-6)"
     status: pending
@@ -51,7 +51,9 @@ phases:
   apply:
     status: in_progress
     depends_on: [tasks]
-    current_pr: PR1
+    current_pr: PR2
+    open_decisions:
+      - "Boton de respaldo manual del .sqlite en panel Admin - el usuario lo esta pensando, NO implementar hasta que confirme"
   verify:
     status: pending
     depends_on: [apply]
