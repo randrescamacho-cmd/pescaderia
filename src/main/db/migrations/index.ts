@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync } from 'node:crypto'
+import { hashPin } from '../../auth/pin'
 
 export interface Migration {
   version: number
@@ -7,28 +7,21 @@ export interface Migration {
 }
 
 /**
- * Hash de PIN placeholder para el seed inicial de roles (migracion 2).
+ * Seed de PIN placeholder para el seed inicial de roles (migracion 2).
  *
- * Usa el mismo mecanismo que design.md Decision 4 (scryptSync, sin libreria
- * externa) para no introducir un algoritmo distinto al que la Fase 3
- * (src/main/auth/pin.ts, fuera de alcance de este PR) implementara como API
- * reutilizable de login/verificacion. Esto NO es el modulo de auth: es solo
- * la produccion de un pin_salt/pin_hash validos para satisfacer las columnas
- * NOT NULL del esquema.
+ * REFACTOR (PR2): reusa `hashPin` de `src/main/auth/pin.ts` (mismo mecanismo
+ * scryptSync + salt aleatorio, design.md Decision 4) en vez de duplicar la
+ * logica de hashing que PR1 habia inlineado aqui por necesidad de orden
+ * (esta migracion se escribio antes de que existiera el modulo de auth
+ * reutilizable -- ver apply-progress.md "Pendiente para PR2").
  *
  * Los PIN de placeholder (usuario=1111, administrador=9999) DEBEN cambiarse
- * en el primer uso real -- la Fase 3 debe forzar o al menos recomendar ese
- * cambio desde la pantalla de Administrador (auth:changePin, tasks.md 3.5).
+ * en el primer uso real -- Fase 3 fuerza/recomienda ese cambio desde la
+ * pantalla de Administrador (`auth:changePin`, tasks.md 3.5).
  */
-function hashPlaceholderPin(pin: string): { salt: string; hash: string } {
-  const salt = randomBytes(16).toString('hex')
-  const hash = scryptSync(pin, salt, 64).toString('hex')
-  return { salt, hash }
-}
-
 function seedRolesSql(): string[] {
-  const usuario = hashPlaceholderPin('1111')
-  const administrador = hashPlaceholderPin('9999')
+  const usuario = hashPin('1111')
+  const administrador = hashPin('9999')
 
   return [
     `INSERT INTO roles (name, pin_salt, pin_hash) VALUES ('usuario', '${usuario.salt}', '${usuario.hash}')`,

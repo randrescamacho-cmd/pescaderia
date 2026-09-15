@@ -20,5 +20,5 @@
       "@renderer/*": ["src/renderer/*"]
     }
   },
-  "include": ["src/renderer/**/*", "src/renderer/env.d.ts"]
+  "include": ["src/renderer/**/*", "src/renderer/env.d.ts", "src/shared/**/*"]
 }
