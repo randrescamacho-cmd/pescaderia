@@ -1,0 +1,33 @@
+appId: com.bahiadelosangeles.pos
+productName: PescaderiaPOS
+directories:
+  buildResources: build
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!vitest.config.{js,ts,mjs,cjs}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.editorconfig,.gitignore,README.md}'
+  - '!db/**/*'
+  - '!openspec/**/*'
+asarUnpack:
+  - resources/**
+mac:
+  category: public.app-category.business
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # Sin certificado de Apple Developer Program (fuera de scope, ver proposal.md
+  # "Out of Scope" y design.md Decision 8). `identity: null` evita que
+  # electron-builder intente descubrir/usar un certificado local automatico;
+  # la firma ad-hoc explicita (`codesign --sign -`) se aplica en el pipeline de
+  # CI (Fase 10, fuera de este PR) sobre el .app ya generado.
+  identity: null
+  hardenedRuntime: false
+dmg:
+  artifactName: '${productName}-${version}-${arch}.${ext}'
+npmRebuild: false
