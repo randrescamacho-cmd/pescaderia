@@ -47,25 +47,25 @@ Chain strategy: pending
 
 ## Phase 3: Autenticación por PIN de Rol
 
-- [ ] 3.1 `src/main/auth/pin.ts` — `scryptSync` hash + `timingSafeEqual` verify
-- [ ] 3.2 RED: `node:test` — hash/verify correctness, wrong PIN rejected
-- [ ] 3.3 GREEN: implement 3.1 to pass 3.2
-- [ ] 3.4 IPC `auth:login` — compare PIN vs both role hashes
-- [ ] 3.5 IPC `auth:changePin` — Administrador-only, rehash + update role row
-- [ ] 3.6 `preload.ts` — expose `auth.login`/`auth.changePin` via `contextBridge`
-- [ ] 3.7 Renderer: Login screen with numeric keypad
-- [ ] 3.8 Renderer: in-memory session state (role), no persistence across restarts
+- [x] 3.1 `src/main/auth/pin.ts` — `scryptSync` hash + `timingSafeEqual` verify
+- [x] 3.2 RED: `node:test` — hash/verify correctness, wrong PIN rejected (usando `vitest`, ver apply-progress.md Deviations, mismo criterio que 2.7/2.8 de PR1)
+- [x] 3.3 GREEN: implement 3.1 to pass 3.2
+- [x] 3.4 IPC `auth:login` — compare PIN vs both role hashes
+- [x] 3.5 IPC `auth:changePin` — Administrador-only, rehash + update role row
+- [x] 3.6 `preload.ts` — expose `auth.login`/`auth.changePin` via `contextBridge`
+- [x] 3.7 Renderer: Login screen with numeric keypad
+- [x] 3.8 Renderer: in-memory session state (role), no persistence across restarts
 
 ## Phase 4: Catálogo (Departamentos y Productos)
 
-- [ ] 4.1 IPC `catalog:listDepartments/createDepartment/updateDepartment/deleteDepartment` (soft-delete `active`, block delete if active products reference it)
-- [ ] 4.2 IPC `catalog:listProducts/createProduct/updateProduct/deleteProduct` — validate price > 0, department required
-- [ ] 4.3 IPC `catalog:findByBarcode`
-- [ ] 4.4 Role guard middleware: reject Admin-only IPC calls when session role = `usuario`
-- [ ] 4.5 RED: `node:test` — delete-department-with-products rejected; product without department rejected
-- [ ] 4.6 GREEN: implement 4.1/4.2 validations to pass 4.5
-- [ ] 4.7 Renderer: Departamentos screen (Admin only) — CRUD + blocked-delete message
-- [ ] 4.8 Renderer: Productos screen (Admin only) — CRUD form (name, price, cost, department, barcode)
+- [x] 4.1 IPC `catalog:listDepartments/createDepartment/updateDepartment/deleteDepartment` (soft-delete `active`, block delete if active products reference it)
+- [x] 4.2 IPC `catalog:listProducts/createProduct/updateProduct/deleteProduct` — validate price > 0, department required
+- [x] 4.3 IPC `catalog:findByBarcode`
+- [x] 4.4 Role guard middleware: reject Admin-only IPC calls when session role = `usuario`
+- [x] 4.5 RED: `node:test` — delete-department-with-products rejected; product without department rejected (usando `vitest`)
+- [x] 4.6 GREEN: implement 4.1/4.2 validations to pass 4.5
+- [x] 4.7 Renderer: Departamentos screen (Admin only) — CRUD + blocked-delete message
+- [x] 4.8 Renderer: Productos screen (Admin only) — CRUD form (name, price, cost, department, barcode)
 
 ## Phase 5: Ventas
 

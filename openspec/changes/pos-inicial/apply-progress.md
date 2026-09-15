@@ -1,4 +1,14 @@
-# Apply Progress: pos-inicial — PR1 (Fases 1-2)
+# Apply Progress: pos-inicial
+
+## Estado global: 29/29 tareas de Fase 1-4 completas (5/5 + 8/8 + 8/8 + 8/8)
+
+- PR1 (Fases 1-2, Setup + BD/Migraciones): completo, verificado.
+- PR2 (Fases 3-4, Auth PIN + Catálogo): completo — ver sección "PR2" abajo.
+- PR3 (Fases 5-6, Ventas + Caja): pendiente, siguiente en el plan de 5 PRs.
+
+---
+
+# PR1 (Fases 1-2)
 
 ## Scope de este PR
 
@@ -129,7 +139,7 @@ npm run build                                   → typecheck + electron-vite bu
 npx electron-builder --mac --dir --publish never → config válida (bloqueo esperado: requiere macOS)
 ```
 
-## Pendiente para PR2 (Fases 3-4, NO implementado en este PR)
+## Pendiente para PR2 (Fases 3-4, NO implementado en este PR) — RESUELTO en PR2
 
 - **Fase 3 — Auth PIN**: `src/main/auth/pin.ts` (hash/verify reutilizable con
   `scryptSync`+`timingSafeEqual` — reusar el MISMO patrón que ya usa
@@ -147,8 +157,168 @@ npx electron-builder --mac --dir --publish never → config válida (bloqueo esp
 - `src/main/preload.ts` expone un objeto `api` vacío — Fase 3 debe llenarlo
   vía `contextBridge.exposeInMainWorld` con los métodos reales de IPC.
 
-## Status
+Todo lo anterior se implementó en PR2 (ver sección "PR2 (Fases 3-4)" abajo).
+`migrations/index.ts` se refactorizó en PR2 para reusar `hashPin` de
+`src/main/auth/pin.ts` en vez de la función inline `hashPlaceholderPin` que
+tenía este PR — la duplicación era intencional en su momento (el módulo de
+auth no existía todavía), y se eliminó apenas fue posible.
 
-13/13 tasks (Fase 1: 5/5, Fase 2: 8/8) completas. Listo para `sdd-verify` de
-este work unit, o para continuar directo con PR2 (Fases 3-4) según la
-estrategia de entrega del usuario.
+## Status (PR1)
+
+13/13 tasks (Fase 1: 5/5, Fase 2: 8/8) completas. Verificado, listo para PR2.
+
+---
+
+# PR2 (Fases 3-4): Autenticación por PIN de Rol + Catálogo
+
+## Scope de este PR
+
+Solo Fase 3 (Autenticación por PIN de Rol) y Fase 4 (Catálogo: departamentos
+y productos), por plan de 5 PRs encadenados (`tasks.md` → Review Workload
+Forecast → Suggested Work Units → Unit 2). Fases 5-11 quedan explícitamente
+fuera — ver "Pendiente para PR3".
+
+## Estado: 16/16 tareas de Fase 3+4 completas (8/8 + 8/8)
+
+## Decisiones tomadas
+
+| Decisión | Elegido | Por qué |
+|---|---|---|
+| Ubicación autoritativa de la sesión (rol activo) | **Main process** (`src/main/auth/session.ts`, `createSessionStore`), no solo el renderer | `design.md` dice literalmente "la sesión vive solo en memoria del renderer", pero tasks.md 4.4 exige un "Role guard middleware" que rechace llamadas IPC Admin-only. Si el renderer fuera la única fuente de verdad, cualquier `invoke` directo (sin pasar por la UI) podría declarar el rol que quisiera y el guard no protegería nada real. Se preserva la restricción de fondo de design.md (no se persiste a disco, se pierde al cerrar la app) creando el store una sola vez en `app.whenReady()` (`src/main/index.ts`) — nunca toca disco, solo vive en memoria del proceso. El renderer mantiene su propia copia en `useState` (`App.tsx`) únicamente para decidir qué pantallas mostrar; la fuente de verdad que bloquea acciones es el store del main process. Documentado inline en `session.ts`. |
+| Guard de rol como función pura | `assertRole(currentRole, requiredRole)` en `src/main/auth/session.ts`, sin dependencia de Electron | Permite TDD real (RED-GREEN) del guard sin mocks de `ipcMain`/`ipcRenderer`. Los handlers IPC (`ipc/auth.ts`, `ipc/catalog.ts`) solo la invocan — la lógica de negocio del guard vive y se prueba en un solo lugar. |
+| Comparación de PIN como función pura | `authenticate(pin, roles)` en `src/main/auth/authenticate.ts`, recibe las credenciales ya leídas de BD | Misma razón que el guard: separa "leer de SQLite" (`db/queries/roles.ts`, impuro, probado contra `:memory:` real sin mocks — mismo criterio que PR1) de "decidir qué rol coincide" (puro, trivial de testear con `hashPin` real). |
+| Refactor de `migrations/index.ts` | Reemplazó su función inline `hashPlaceholderPin` por `hashPin` de `src/main/auth/pin.ts` | PR1 documentó esto explícitamente como pendiente ("el módulo de auth reutilizable... Fase 3, fuera de este PR"). Se hizo con Safety Net primero (`migrate.test.ts` 10/10 verde antes de tocar el archivo) y se confirmó verde después — cero cambio de comportamiento, solo eliminación de duplicación. |
+| Tipos de contrato IPC compartidos | Nuevo directorio `src/shared/ipc-types.ts`, incluido en `tsconfig.node.json` Y `tsconfig.web.json` | `design.md` no menciona una carpeta `shared/`, pero sin ella `preload.ts` (lado main) y `ipc-client.ts` (lado renderer) habrían duplicado las interfaces `Role`/`Department`/`Product`/`PosApi`, con alto riesgo de que se desincronizaran. Es la única forma limpia de compartir tipos entre los dos `tsconfig` separados (uno no incluye `src/main`, el otro no incluye `src/renderer`). Documentado como deviation menor de la "Estructura de Carpetas" de `design.md`. |
+| Guard de catálogo: qué se protege y qué no | `assertRole(session.getRole(), 'administrador')` SOLO antes de create/update/delete de departamentos y productos. `listDepartments`, `listProducts` y `findByBarcode` quedan SIN guard | `auth-roles/spec.md` "Administrator-Only Actions" solo restringe crear/editar/eliminar. El rol Usuario necesita poder leer el catálogo (buscar por código de barras) para vender en la Fase 5 (siguiente PR) — bloquear la lectura rompería ese flujo sin que ninguna spec lo exija. |
+| Placeholder PIN (`1111`/`9999`) — no se forzó cambio obligatorio bloqueante | Se implementó `auth:changePin` (Admin-only) y quedó disponible desde el primer login, pero NO se agregó un modal bloqueante de "debes cambiar tu PIN" en este PR | Ninguna spec (`auth-roles/spec.md`) exige un flujo de cambio de PIN *forzoso* al primer login — solo que el cambio de PIN esté restringido a Administrador (cumplido). Agregar un bloqueo obligatorio sin un requisito explícito habría sido diseño no solicitado (freelancing). Queda como una mejora candidata a proponerse explícitamente si el usuario la quiere, no como tarea implícita de tasks.md 3.5. |
+| Sin router de renderer | Navegación manual con `useState<Screen>` en `App.tsx` (`home`/`departamentos`/`productos`) | Solo 3 pantallas en este PR (Login, Departamentos, Productos); agregar `react-router` u otra librería para 3 pantallas habría sido una dependencia nueva sin justificación todavía. Se reevaluará cuando Fases 5-9 agreguen Ventas/Caja/Créditos/Corte del Día (más pantallas, posible necesidad real de router). |
+
+## Deviations from Design
+
+1. **Ubicación de la sesión** (main process, no solo renderer) — ver tabla de
+   Decisiones arriba. Es la única forma de que el guard de rol (tasks.md 4.4)
+   sea real y no decorativo.
+2. **`src/shared/ipc-types.ts` no existe en el árbol de `design.md`** — ver
+   tabla de Decisiones. Sin impacto funcional; es puramente para no duplicar
+   tipos entre main y renderer.
+3. **Deviation de test runner ya documentada en PR1 se repite aquí**:
+   tasks.md 3.2 y 4.5 dicen `node:test`; se usó `vitest` (mismo criterio que
+   2.7/2.8 — `openspec/config.yaml` fija `npx vitest run`).
+
+## Testing scope decision: qué SÍ y qué NO se cubrió con TDD
+
+Siguiendo el mismo criterio de PR1 ("Testing Strategy" de `design.md` no
+incluye una capa de component-testing de UI, y `App.tsx`/`preload.ts` de PR1
+ya sentaron el precedente de wiring sin test dedicado):
+
+- **SÍ, con RED-GREEN-TRIANGULATE completo**: `pin.ts` (hash/verify),
+  `authenticate.ts` (resolución de rol desde PIN), `session.ts` (session
+  store + guard `assertRole`), `db/queries/roles.ts`, `db/queries/departments.ts`
+  (incluye el bloqueo de borrado con productos asignados) y
+  `db/queries/products.ts` (incluye `validateProductInput` — precio > 0,
+  departamento obligatorio).
+- **SÍ, como integración de wiring (escrito después de la composición, no
+  RED-first puro, pero compone unidades que SÍ fueron TDD'd)**: `ipc/auth.ts`
+  e `ipc/catalog.ts` — se agregaron pruebas con un `IpcMain` falso
+  (`.handle` capturado en un `Map`) para verificar el guard de rol end-to-end
+  a través del canal IPC real, no solo la función pura `assertRole` aislada.
+  Esto cierra la brecha entre "el guard puro está probado" y "el guard
+  realmente protege el canal IPC".
+- **NO cubierto con pruebas automatizadas**: `preload.ts`, `src/main/index.ts`
+  (wiring, mismo precedente que PR1) y las pantallas de renderer
+  (`Login.tsx`, `Departamentos.tsx`, `Productos.tsx`, `App.tsx`). No hay
+  `@testing-library/react` ni ninguna librería de testing de componentes en
+  el proyecto, y `design.md` "Testing Strategy" no define una capa de
+  component-testing (solo Unit/Integration a nivel de lógica de negocio y
+  E2E manual con hardware real). Agregar una librería nueva solo para este
+  PR habría sido una decisión de tooling no solicitada — se deja como
+  propuesta explícita para un PR futuro si el usuario la quiere.
+
+## Archivos creados
+
+| Archivo | Qué hace |
+|---|---|
+| `src/main/auth/pin.ts` + `.test.ts` | `hashPin`/`verifyPin` reutilizable (scryptSync + timingSafeEqual) |
+| `src/main/auth/authenticate.ts` + `.test.ts` | `authenticate(pin, roles)` — resuelve el rol desde el PIN, función pura |
+| `src/main/auth/session.ts` + `.test.ts` | `createSessionStore` (rol activo en memoria del main process) + `assertRole` (guard de rol puro) |
+| `src/main/db/queries/roles.ts` + `.test.ts` | `getRoleCredentials`/`updateRolePin` contra SQLite real |
+| `src/main/db/queries/departments.ts` + `.test.ts` | CRUD de departamentos + soft-delete bloqueado si hay productos activos asignados |
+| `src/main/db/queries/products.ts` + `.test.ts` | CRUD de productos + `validateProductInput` (precio > 0, departamento obligatorio) + `findByBarcode` |
+| `src/main/ipc/auth.ts` + `.test.ts` | Wiring `auth:login`/`auth:changePin`/`auth:logout` + guard de rol end-to-end probado con `IpcMain` falso |
+| `src/main/ipc/catalog.ts` + `.test.ts` | Wiring `catalog:*` (departamentos/productos) + guard de rol end-to-end probado con `IpcMain` falso |
+| `src/shared/ipc-types.ts` | Contrato IPC compartido (Role, Department, Product, PosApi, etc.) entre main y renderer |
+| `src/renderer/screens/Login.tsx` | Pantalla de login con teclado numérico (0-9, borrar, confirmar) |
+| `src/renderer/screens/Departamentos.tsx` | CRUD de departamentos (Admin only) + mensaje de borrado bloqueado con productos que lo impiden |
+| `src/renderer/screens/Productos.tsx` | CRUD de productos (Admin only): nombre, precio, costo opcional, departamento (select), código de barras opcional |
+| `src/renderer/ipc-client.ts` | Wrapper tipado sobre `window.api` (design.md "Estructura de Carpetas") |
+| `src/renderer/App.tsx` (modificado) | Enruta entre Login y las pantallas Admin-only según el rol; navegación manual sin router (ver Decisiones) |
+| `src/main/preload.ts` (modificado) | Expone la API real (`auth.*`, `catalog.*`) vía `contextBridge` — antes era un objeto vacío |
+| `src/main/index.ts` (modificado) | Crea el `SessionStore` una vez por arranque y registra `registerAuthIpc`/`registerCatalogIpc` |
+| `src/main/db/migrations/index.ts` (refactor) | Reusa `hashPin` de `auth/pin.ts` en vez de duplicar la lógica de hashing (ver Decisiones) |
+| `src/renderer/env.d.ts` (modificado) | Declara `Window.api: PosApi` global |
+| `tsconfig.node.json`, `tsconfig.web.json` (modificados) | Incluyen `src/shared/**/*` para que ambos lados compartan los tipos de contrato IPC |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1/3.2/3.3 | `src/main/auth/pin.test.ts` | Unit | N/A (new) | ✅ Written (referenciaba `hashPin`/`verifyPin` inexistentes) | ✅ Passed | ✅ 3 casos (correcto, incorrecto, salts distintos por llamada) | ➖ None needed (función ya mínima) |
+| 3.4 (lógica de resolución de rol) | `src/main/auth/authenticate.test.ts` | Unit | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 casos (usuario, administrador, ninguno) | ➖ None needed |
+| 3.5/4.4 (guard de rol) | `src/main/auth/session.test.ts` | Unit | N/A (new) | ✅ Written (referenciaba `createSessionStore`/`assertRole` inexistentes) | ✅ Passed | ✅ 6 casos (store: sin sesión/login/logout; guard: coincide/no coincide/null) | ➖ None needed |
+| 3.4 (lectura de credenciales) | `src/main/db/queries/roles.test.ts` | Integration (contra `:memory:` real, sin mocks) | N/A (new) | ✅ Written | ✅ Passed | ✅ 2 casos (lectura, actualización aislada por rol) | ➖ None needed |
+| 4.1/4.5/4.6 (departamentos) | `src/main/db/queries/departments.test.ts` | Integration (contra `:memory:` real, sin mocks) | N/A (new) | ✅ Written | ✅ Passed | ✅ 5 casos (listar, crear, renombrar, bloqueo por productos activos, soft-delete sin productos) | ➖ None needed |
+| 4.2/4.5/4.6 (productos) | `src/main/db/queries/products.test.ts` | Integration (contra `:memory:` real, sin mocks) + Unit (`validateProductInput`) | N/A (new) | ✅ Written | ✅ Passed | ✅ 10 casos (validación x3, crear x4, reasignar, soft-delete, findByBarcode x2) | ➖ None needed |
+| 3.4/3.5 (wiring, guard end-to-end) | `src/main/ipc/auth.test.ts` | Integration (IpcMain falso, sin Electron real) | ✅ (pin.ts/authenticate.ts/session.ts ya verdes antes de escribir esto) | ✅ Written (después de componer el wiring — ver "Testing scope decision") | ✅ Passed | ✅ 4 casos (login ok, login rechazado, changePin rechazado por rol, changePin exitoso + nuevo PIN funciona) | ➖ None needed |
+| 4.4 (wiring, guard end-to-end) | `src/main/ipc/catalog.test.ts` | Integration (IpcMain falso, sin Electron real) | ✅ (departments.ts/products.ts ya verdes antes de escribir esto) | ✅ Written (después de componer el wiring) | ✅ Passed | ✅ 3 casos (rechazado por rol usuario, permitido por administrador, lectura sin guard) | ➖ None needed |
+| PR1 refactor | `src/main/db/migrate.test.ts` (ya existente) | Integration | ✅ 10/10 antes del refactor de `migrations/index.ts` | N/A (approval test, no test nuevo) | ✅ 10/10 después del refactor | N/A | ✅ Eliminada `hashPlaceholderPin` duplicada, ahora reusa `hashPin` |
+
+### Test Summary
+
+- **Total tests written (PR2)**: 37 (pin 3 + authenticate 3 + session 6 + roles 2 + departments 5 + products 11 + ipc/auth 4 + ipc/catalog 3; `products.test.ts` incluye 3 de `validateProductInput` + 8 de las funciones de BD)
+- **Total tests passing (PR2)**: 37/37
+- **Total tests passing (proyecto completo, PR1+PR2)**: 54/54 (`npx vitest run`, 11 archivos)
+- **Layers used**: Unit (pin, authenticate, session, validateProductInput — puros), Integration (roles/departments/products contra `node:sqlite` real sin mocks; ipc/auth e ipc/catalog con `IpcMain` falso)
+- **Approval tests** (refactoring): 1 — `migrate.test.ts` (10/10 antes y después del refactor de `migrations/index.ts`)
+- **Pure functions created**: `hashPin`, `verifyPin`, `authenticate`, `assertRole`, `validateProductInput` (5)
+- **Mocks usados**: 0 mocks de librerías/módulos externos. El único "doble de prueba" es el objeto `IpcMain` falso en `ipc/*.test.ts` (implementa solo `.handle`, captura el listener real) — no es un mock de comportamiento, es un stub minimal de la interfaz de registro para poder invocar los handlers reales sin Electron.
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run   → 11 files, 54/54 tests passed
+npm run typecheck → tsc --noEmit limpio (node + web)
+npm run build     → typecheck + electron-vite build OK
+npm run dev       → main+preload build OK, renderer sirve en localhost:5173,
+                    proceso Electron arranca (los unicos mensajes en stderr
+                    son "Network service crashed"/"GPU process exited" del
+                    sandbox del agente, mismo patron que PR1 documento con
+                    ELECTRON_RUN_AS_NODE — no son errores de la aplicacion)
+```
+
+## Pendiente para PR3 (Fases 5-6, NO implementado en este PR)
+
+- **Fase 5 — Ventas**: `sales:create` transaccional (snapshot de
+  departamento/costo/precio en `sale_lines`, ya soportado por el esquema de
+  PR1), validaciones (cantidad > 0, al menos 1 línea, suma de pagos == total,
+  `credito` requiere cliente), pantalla de Ventas con buffer de escáner
+  USB-HID y modal de pago dividido.
+- **Fase 6 — Caja**: `cash:openShift`/`cashIn`/`cashOut`/`closeShift` con la
+  fórmula de reconciliación de `design.md`, pantallas de apertura/
+  entradas-salidas/cierre de turno.
+- El `SessionStore` creado en este PR (`src/main/index.ts`) debe reutilizarse
+  para saber qué `role_id` abrió/cerró el turno (`shifts.opened_by_role_id`) —
+  falta mapear `Role` (string `'usuario'`/`'administrador'`) a `roles.id`
+  (INTEGER) para esas FKs; no existe todavía una consulta `getRoleId(db,
+  role)`. Dejarlo explícito para que PR3 no lo repita desde cero.
+- La pantalla `Ventas` necesitará `catalog:findByBarcode` (ya implementado en
+  este PR, sin guard de rol) y un cliente picker/creator que PR3 comparte con
+  Fase 7 (Créditos) — no se adelantó nada de eso aquí.
+- Ningún archivo de `src/main/printing/` tiene contenido real todavía (Fase 9,
+  PR4) — sigue solo con `.gitkeep`.
+
+## Status (PR2)
+
+16/16 tasks (Fase 3: 8/8, Fase 4: 8/8) completas. 29/29 tasks totales
+(Fase 1-4) del cambio `pos-inicial`. Listo para `sdd-verify` de este work
+unit, o para continuar directo con PR3 (Fases 5-6) según la estrategia de
+entrega del usuario.
