@@ -14,7 +14,8 @@ lista fija en código.
 El sistema MUST permitir al rol Administrador crear, editar y eliminar
 departamentos. El sistema MUST NOT tener departamentos hardcodeados —
 la lista completa (incluyendo los ya conocidos: Saldos, Mariscos, Venta
-de Pescado, Ropa y Accesorios, Dulces, Sodas, Souvenir, Coca Cola) MUST
+de Pescado, Ropa y Accesorios, Juguetes, Dulces, Sodas, Souvenir, Coca
+Cola) MUST
 existir como datos en SQLite, no como constantes de código.
 
 #### Scenario: Administrador crea un nuevo departamento
