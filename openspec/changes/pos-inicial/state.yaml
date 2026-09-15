@@ -7,7 +7,9 @@ chain_strategy: confirmed-5-pr
 pr_plan:
   - id: PR1
     scope: "Setup + esquema BD/migraciones (Fases 1-2)"
-    status: pending
+    status: done_verified
+    verify_report: verify-report-pr1.md
+    verdict: PASS (0 CRITICAL, 2 WARNING no bloqueantes, 2 SUGGESTION)
   - id: PR2
     scope: "Auth PIN + Catalogo (Fases 3-4)"
     status: pending
