@@ -46,13 +46,16 @@ directas de este PR ("Test runner: `npx vitest run`"). Se usó `vitest` como
 runner real — no se creó ninguna prueba con `node:test`. Sin impacto en
 cobertura: `vitest` ejecuta contra el mismo `node:sqlite` real (no hay mocks).
 
-## Departamentos seed: 9, no 8
+## Departamentos seed: 9, no 8 — RESUELTO (commit `bae2a87`)
 
-`catalog-management/spec.md` lista 8 departamentos de ejemplo y omite
-"Juguetes". `openspec/config.yaml` (contexto de negocio, fuente primaria)
-lista 9 e incluye "Juguetes". Se usó la lista de `config.yaml` (superset) para
-no perder un departamento real de la tienda. Si esto fue un error de la spec
-(no del config), corregir `catalog-management/spec.md` en un PR de specs.
+`catalog-management/spec.md` listaba 8 departamentos de ejemplo y omitía
+"Juguetes" (sí presente en `config.yaml`, fuente primaria, y en el mensaje
+original del usuario). El código de este PR ya sembró los 9 (superset
+correcto). Después de completado este PR, el orquestador corrigió
+`catalog-management/spec.md` para agregar "Juguetes" a la lista (commit
+`bae2a87`, fuera de esta sesión de `sdd-apply`, verificado contra el
+requisito original del usuario antes de editar) — no quedó como pendiente
+abierto para un PR de specs futuro; ya está alineado.
 
 ## Archivos creados
 
