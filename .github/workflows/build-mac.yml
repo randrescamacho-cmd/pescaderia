@@ -1,0 +1,119 @@
+name: build-mac
+
+# Estrategia de triggers (Fase 10, tasks.md 10.3):
+# - push a `main`: corre SOLO el job `test` (instala, `npx vitest run`,
+#   `npm run build`). NO empaqueta .dmg en cada push -- seria trabajo de
+#   runner macOS desperdiciado en cada commit que no es una version a
+#   entregar al cliente.
+# - tag `v*.*.*`: corre `test` Y, si pasa, el job `package` completo (matrix
+#   arm64+x64, firma ad-hoc, .dmg, artifact + GitHub Release). Un tag marca
+#   explicitamente "esta es una version para instalar en la Mac del
+#   cliente" -- unico momento en que vale la pena generar y publicar el
+#   .dmg firmado.
+# - workflow_dispatch: permite forzar cualquiera de los dos manualmente
+#   desde la pestana Actions (ej. probar el pipeline sin crear un tag).
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # requerido por softprops/action-gh-release al publicar en un tag
+
+jobs:
+  test:
+    name: Test + Build (todas las ramas/tags)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 (no 22, a diferencia del borrador de design.md): Electron
+      # 44.3.0 empaqueta Node 24.20.0 (ver apply-progress.md PR1), y
+      # `npx vitest run` ejecuta contra `node:sqlite` REAL bajo el Node del
+      # runner de CI (no bajo el Node bundle de Electron) -- ver
+      # src/main/node-version.ts: Node >=24 nunca requiere
+      # `--experimental-sqlite`. Usar Node 22 en CI habria sido consistente
+      # con el flag guard, pero Node 24 elimina cualquier duda y coincide
+      # con la maquina de desarrollo local (v24.15.0).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # El pipeline DEBE fallar aqui si algun test esta roto. `npm run
+      # build` (typecheck + electron-vite build) y, en tags, el job
+      # `package` completo NUNCA corren si este paso falla -- GitHub
+      # Actions detiene el job en el primer comando con exit code != 0 y
+      # el job `package` depende de este via `needs: test`.
+      - run: npx vitest run
+
+      - run: npm run build
+
+  package:
+    name: Empaquetar .dmg (${{ matrix.arch }})
+    needs: test
+    # Solo en tags de version -- ver comentario del trigger arriba. Sin
+    # esta condicion, cada push a `main` gastaria minutos de runner macOS
+    # empaquetando un .dmg que nadie va a instalar todavia.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    strategy:
+      # Matrix de 2 builds (uno por arquitectura) en vez de un build
+      # "universal" (--universal de electron-builder, que empaqueta
+      # arm64+x64 en un solo binario ~2x mas pesado): design.md ya definio
+      # el pipeline como matrix por arch, coincide con electron-builder.yml
+      # (mac.target.arch: [arm64, x64], PR1) y produce un .dmg mas liviano
+      # por descarga -- relevante para transferir por USB/AirDrop al
+      # cliente si la conexion a Internet en el sitio no es confiable
+      # (openspec/config.yaml: "pierde luz/internet seguido").
+      matrix:
+        arch: [arm64, x64]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build .app sin empaquetar (${{ matrix.arch }})
+        run: npx electron-builder --mac --${{ matrix.arch }} --dir --publish never
+
+      - name: Firma ad-hoc explicita (evita SIGKILL en Apple Silicon)
+        # SIN certificado de Apple Developer Program (99 USD/ano, fuera de
+        # scope -- ver proposal.md "Out of Scope", design.md Decision 8 y
+        # exploration.md "Firma y notarizacion"). La firma ad-hoc (`--sign
+        # -`) es gratuita y obligatoria en Apple Silicon: sin ella macOS
+        # mata el proceso con SIGKILL, sin ningun dialogo de "abrir de
+        # todos modos" posible para ese caso -- distinto del bloqueo de
+        # Gatekeeper (que si tiene bypass manual, ver README.md).
+        # electron-builder.yml ya fija `identity: null`/`hardenedRuntime:
+        # false` (PR1) para no depender de un certificado local; este paso
+        # aplica la firma ad-hoc explicita sobre el .app ya generado.
+        run: |
+          APP=$(find dist -maxdepth 2 -name "*.app" -print -quit)
+          echo "Firmando: $APP"
+          codesign --force --deep --sign - "$APP"
+
+      - name: Empaquetar .dmg desde el .app ya firmado
+        run: |
+          APP=$(find dist -maxdepth 2 -name "*.app" -print -quit)
+          npx electron-builder --mac --${{ matrix.arch }} --publish never --prepackaged "$APP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pescaderia-pos-mac-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publicar en GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
