@@ -50,3 +50,16 @@ export function assertRole(currentRole: Role | null, requiredRole: Role): void {
     throw new Error(`Accion restringida al rol '${requiredRole}'`)
   }
 }
+
+/**
+ * Guard de "cualquier rol autenticado" (tasks.md Fase 5/6: vender y operar
+ * caja no son acciones Admin-only, pero SI requieren una sesion activa --
+ * a diferencia de `catalog:listDepartments`/`findByBarcode`, que son de
+ * solo lectura y no requieren sesion). Funcion pura, mismo criterio que
+ * `assertRole`.
+ */
+export function assertAuthenticated(currentRole: Role | null): void {
+  if (currentRole === null) {
+    throw new Error('Accion restringida a usuarios con sesion activa')
+  }
+}

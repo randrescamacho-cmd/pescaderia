@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { api } from './ipc-client'
+import Caja from './screens/Caja'
 import Departamentos from './screens/Departamentos'
 import Login from './screens/Login'
 import Productos from './screens/Productos'
+import Ventas from './screens/Ventas'
 import type { Role } from '../shared/ipc-types'
 
-type Screen = 'home' | 'departamentos' | 'productos'
+type Screen = 'home' | 'departamentos' | 'productos' | 'ventas' | 'caja'
 
 /**
  * Estado de sesion del renderer (design.md: "vive en memoria del renderer,
@@ -41,6 +43,12 @@ function App(): React.JSX.Element {
           <button type="button" onClick={() => setScreen('home')}>
             Inicio
           </button>
+          <button type="button" onClick={() => setScreen('ventas')}>
+            Ventas
+          </button>
+          <button type="button" onClick={() => setScreen('caja')}>
+            Caja
+          </button>
           {role === 'administrador' && (
             <>
               <button type="button" onClick={() => setScreen('departamentos')}>
@@ -58,8 +66,13 @@ function App(): React.JSX.Element {
       </header>
 
       {screen === 'home' && (
-        <p>Fase 3 (Autenticacion) y Fase 4 (Catalogo) completadas. Ventas y caja llegan en el siguiente PR.</p>
+        <p>
+          Fase 3 (Autenticacion), Fase 4 (Catalogo), Fase 5 (Ventas) y Fase 6 (Caja) completadas.
+          Creditos, corte del dia e impresion llegan en el siguiente PR.
+        </p>
       )}
+      {screen === 'ventas' && <Ventas />}
+      {screen === 'caja' && <Caja />}
       {screen === 'departamentos' && role === 'administrador' && <Departamentos />}
       {screen === 'productos' && role === 'administrador' && <Productos />}
     </main>

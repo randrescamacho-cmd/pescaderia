@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { runMigrations } from '../migrate'
-import { getRoleCredentials, updateRolePin } from './roles'
+import { getRoleCredentials, getRoleId, updateRolePin } from './roles'
 
 function openMigratedDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true })
@@ -36,5 +36,31 @@ describe('updateRolePin', () => {
     expect(usuario.pinSalt).toBe('nueva-salt')
     expect(usuario.pinHash).toBe('nueva-hash')
     expect(administrador.pinSalt).not.toBe('nueva-salt')
+  })
+})
+
+describe('getRoleId', () => {
+  it('resolves the integer roles.id for "usuario" (needed for shifts.opened_by_role_id FK)', () => {
+    const db = openMigratedDb()
+
+    const id = getRoleId(db, 'usuario')
+
+    expect(typeof id).toBe('number')
+    expect(Number.isInteger(id)).toBe(true)
+  })
+
+  it('resolves a different id for "administrador" than for "usuario"', () => {
+    const db = openMigratedDb()
+
+    const usuarioId = getRoleId(db, 'usuario')
+    const administradorId = getRoleId(db, 'administrador')
+
+    expect(administradorId).not.toBe(usuarioId)
+  })
+
+  it('throws for a role name that does not exist', () => {
+    const db = openMigratedDb()
+
+    expect(() => getRoleId(db, 'inexistente' as never)).toThrow()
   })
 })

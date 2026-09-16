@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertRole, createSessionStore } from './session'
+import { assertAuthenticated, assertRole, createSessionStore } from './session'
 
 describe('createSessionStore', () => {
   it('has no active role until login is called', () => {
@@ -37,5 +37,19 @@ describe('assertRole', () => {
 
   it('throws when there is no active session (null role)', () => {
     expect(() => assertRole(null, 'administrador')).toThrow()
+  })
+})
+
+describe('assertAuthenticated', () => {
+  it('does not throw when the role is usuario (tasks.md 5: any authenticated role can sell)', () => {
+    expect(() => assertAuthenticated('usuario')).not.toThrow()
+  })
+
+  it('does not throw when the role is administrador', () => {
+    expect(() => assertAuthenticated('administrador')).not.toThrow()
+  })
+
+  it('throws when there is no active session (null role)', () => {
+    expect(() => assertAuthenticated(null)).toThrow()
   })
 })

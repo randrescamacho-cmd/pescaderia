@@ -12,7 +12,8 @@ import type {
   ChangePinInput,
   DepartmentInput,
   PosApi,
-  ProductInput
+  ProductInput,
+  SaleInput
 } from '../shared/ipc-types'
 
 const api: PosApi = {
@@ -33,6 +34,23 @@ const api: PosApi = {
     updateProduct: (id: number, input: ProductInput) => ipcRenderer.invoke('catalog:updateProduct', id, input),
     deleteProduct: (id: number) => ipcRenderer.invoke('catalog:deleteProduct', id),
     findByBarcode: (barcode: string) => ipcRenderer.invoke('catalog:findByBarcode', barcode)
+  },
+  sales: {
+    create: (input: SaleInput) => ipcRenderer.invoke('sales:create', input)
+  },
+  cash: {
+    getOpenShift: () => ipcRenderer.invoke('cash:getOpenShift'),
+    openShift: (openingCash: number) => ipcRenderer.invoke('cash:openShift', openingCash),
+    cashIn: (shiftId: number, amount: number, concept: string) =>
+      ipcRenderer.invoke('cash:cashIn', shiftId, amount, concept),
+    cashOut: (shiftId: number, amount: number, concept: string, provider: string) =>
+      ipcRenderer.invoke('cash:cashOut', shiftId, amount, concept, provider),
+    listMovements: (shiftId: number) => ipcRenderer.invoke('cash:listMovements', shiftId),
+    closeShift: (shiftId: number, countedCash: number) =>
+      ipcRenderer.invoke('cash:closeShift', shiftId, countedCash)
+  },
+  customers: {
+    list: () => ipcRenderer.invoke('customers:list')
   }
 }
 

@@ -4,7 +4,10 @@ import { createSessionStore } from './auth/session'
 import { createConnection } from './db/connection'
 import { runMigrations } from './db/migrate'
 import { registerAuthIpc } from './ipc/auth'
+import { registerCashIpc } from './ipc/cash'
 import { registerCatalogIpc } from './ipc/catalog'
+import { registerCustomersIpc } from './ipc/customers'
+import { registerSalesIpc } from './ipc/sales'
 import { needsExperimentalSqliteFlag } from './node-version'
 
 // Task 1.5: agrega el flag `--experimental-sqlite` ANTES de app.ready solo si
@@ -60,6 +63,9 @@ app.whenReady().then(() => {
   const session = createSessionStore()
   registerAuthIpc(ipcMain, db, session)
   registerCatalogIpc(ipcMain, db, session)
+  registerSalesIpc(ipcMain, db, session)
+  registerCashIpc(ipcMain, db, session)
+  registerCustomersIpc(ipcMain, db)
 
   createWindow()
 

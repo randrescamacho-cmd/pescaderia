@@ -6,6 +6,7 @@ import {
   createProduct,
   deleteProduct,
   findByBarcode,
+  getProductById,
   listProducts,
   updateProduct,
   validateProductInput
@@ -116,5 +117,34 @@ describe('findByBarcode', () => {
     const db = openMigratedDb()
 
     expect(findByBarcode(db, '0000000000000')).toBeNull()
+  })
+})
+
+describe('getProductById', () => {
+  it('returns an active product by its id (used by sales:create to snapshot price/cost/department)', () => {
+    const db = openMigratedDb()
+    const departmentId = mariscosDepartmentId(db)
+    const product = createProduct(db, { name: 'Camaron', price: 120, cost: 80, departmentId })
+
+    const found = getProductById(db, product.id)
+
+    expect(found?.name).toBe('Camaron')
+    expect(found?.price).toBe(120)
+    expect(found?.cost).toBe(80)
+  })
+
+  it('returns null for a soft-deleted (inactive) product id', () => {
+    const db = openMigratedDb()
+    const departmentId = mariscosDepartmentId(db)
+    const product = createProduct(db, { name: 'Camaron', price: 120, departmentId })
+    deleteProduct(db, product.id)
+
+    expect(getProductById(db, product.id)).toBeNull()
+  })
+
+  it('returns null for a nonexistent id', () => {
+    const db = openMigratedDb()
+
+    expect(getProductById(db, 999999)).toBeNull()
   })
 })

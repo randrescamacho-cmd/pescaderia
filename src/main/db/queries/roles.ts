@@ -32,3 +32,20 @@ export function getRoleCredentials(db: DatabaseSync): RoleCredential[] {
 export function updateRolePin(db: DatabaseSync, role: Role, pinSalt: string, pinHash: string): void {
   db.prepare('UPDATE roles SET pin_salt = ?, pin_hash = ? WHERE name = ?').run(pinSalt, pinHash, role)
 }
+
+/**
+ * Mapea el rol de sesion (string 'usuario'/'administrador') a `roles.id`
+ * (INTEGER) para las FK `shifts.opened_by_role_id`/`closed_by_role_id`
+ * (design.md esquema). Documentado como pendiente en apply-progress.md
+ * "Pendiente para PR3" -- no existia todavia ninguna consulta que hiciera
+ * este mapeo.
+ */
+export function getRoleId(db: DatabaseSync, role: Role): number {
+  const row = db.prepare('SELECT id FROM roles WHERE name = ?').get(role) as { id: number } | undefined
+
+  if (!row) {
+    throw new Error(`Rol desconocido: ${role}`)
+  }
+
+  return row.id
+}

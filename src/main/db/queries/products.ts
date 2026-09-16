@@ -99,3 +99,17 @@ export function findByBarcode(db: DatabaseSync, barcode: string): Product | null
 
   return row ? mapRow(row) : null
 }
+
+/**
+ * Usado por `db/queries/sales.ts` (`createSale`) para snapshotear
+ * departamento/costo/precio al momento de la venta (design.md Decision 7).
+ * Solo devuelve productos activos: un producto soft-eliminado no MUST poder
+ * venderse.
+ */
+export function getProductById(db: DatabaseSync, id: number): Product | null {
+  const row = db
+    .prepare('SELECT * FROM products WHERE id = ? AND active = 1')
+    .get(id) as unknown as ProductRow | undefined
+
+  return row ? mapRow(row) : null
+}
