@@ -11,6 +11,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ChangePinInput,
   DepartmentInput,
+  GrantCreditInput,
+  PayCreditInput,
   PosApi,
   ProductInput,
   SaleInput
@@ -50,7 +52,21 @@ const api: PosApi = {
       ipcRenderer.invoke('cash:closeShift', shiftId, countedCash)
   },
   customers: {
-    list: () => ipcRenderer.invoke('customers:list')
+    list: () => ipcRenderer.invoke('customers:list'),
+    create: (name: string) => ipcRenderer.invoke('customers:create', name)
+  },
+  credit: {
+    grant: (input: GrantCreditInput) => ipcRenderer.invoke('credit:grant', input),
+    pay: (input: PayCreditInput) => ipcRenderer.invoke('credit:pay', input),
+    balance: (customerId: number) => ipcRenderer.invoke('credit:balance', customerId),
+    listBalances: () => ipcRenderer.invoke('credit:listBalances')
+  },
+  reports: {
+    dailyCut: (shiftId: number) => ipcRenderer.invoke('reports:dailyCut', shiftId)
+  },
+  print: {
+    sale: (saleId: number) => ipcRenderer.invoke('print:sale', saleId),
+    dailyCut: (shiftId: number) => ipcRenderer.invoke('print:dailyCut', shiftId)
   }
 }
 

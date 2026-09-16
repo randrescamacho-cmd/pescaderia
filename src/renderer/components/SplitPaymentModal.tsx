@@ -1,29 +1,57 @@
 import { useState } from 'react'
 import { paymentsMatchTotal, sumPaymentAmounts } from '../../shared/sale-math'
-import type { Customer, PaymentMethod, SalePaymentInput } from '../../shared/ipc-types'
+import type { Customer, PaymentMethod } from '../../shared/ipc-types'
+
+/**
+ * Borrador de porcion de pago del modal (Fase 7/PR4, tasks.md 7.6): distinto
+ * de `SalePaymentInput` porque una porcion `credito` puede referirse a un
+ * cliente TODAVIA NO CREADO (`customerName`, sin id real aun) -- resolver
+ * ese nombre a un `customerId` real (via `customers:create`) es
+ * responsabilidad de quien llama a `onConfirm` (`Ventas.tsx`), ANTES de
+ * invocar `sales:create`, porque `sale_payments.customer_id` es una FK real
+ * que exige que el cliente ya exista.
+ */
+export interface PaymentDraft {
+  method: PaymentMethod
+  amount: number
+  customerId: number | null
+  customerName: string | null
+}
+
+const NEW_CUSTOMER_OPTION = '__new__'
 
 interface PaymentRowState {
   method: PaymentMethod
   amount: string
+  customerMode: 'existing' | 'new'
   customerId: string
+  customerName: string
 }
 
 interface SplitPaymentModalProps {
   total: number
   customers: Customer[]
-  onConfirm: (payments: SalePaymentInput[]) => void
+  onConfirm: (payments: PaymentDraft[]) => void
   onCancel: () => void
 }
 
 function emptyRow(amount: number): PaymentRowState {
-  return { method: 'efectivo', amount: amount ? String(amount) : '', customerId: '' }
+  return {
+    method: 'efectivo',
+    amount: amount ? String(amount) : '',
+    customerMode: 'existing',
+    customerId: '',
+    customerName: ''
+  }
 }
 
-function toPaymentInput(row: PaymentRowState): SalePaymentInput {
+function toDraft(row: PaymentRowState): PaymentDraft {
+  const isCredito = row.method === 'credito'
   return {
     method: row.method,
     amount: Number(row.amount) || 0,
-    customerId: row.method === 'credito' && row.customerId ? Number(row.customerId) : null
+    customerId: isCredito && row.customerMode === 'existing' && row.customerId ? Number(row.customerId) : null,
+    customerName: isCredito && row.customerMode === 'new' && row.customerName.trim() ? row.customerName.trim() : null
   }
 }
 
@@ -46,10 +74,15 @@ function SplitPaymentModal({
 }: SplitPaymentModalProps): React.JSX.Element {
   const [rows, setRows] = useState<PaymentRowState[]>([emptyRow(total)])
 
-  const payments = rows.map(toPaymentInput)
-  const sum = sumPaymentAmounts(payments)
-  const sumMatches = paymentsMatchTotal(payments, total)
-  const missingCreditCustomer = rows.some((row) => row.method === 'credito' && !row.customerId)
+  const drafts = rows.map(toDraft)
+  const sum = sumPaymentAmounts(drafts)
+  const sumMatches = paymentsMatchTotal(drafts, total)
+  const missingCreditCustomer = rows.some(
+    (row) =>
+      row.method === 'credito' &&
+      ((row.customerMode === 'existing' && !row.customerId) ||
+        (row.customerMode === 'new' && !row.customerName.trim()))
+  )
   const canConfirm = sumMatches && !missingCreditCustomer && rows.length > 0
 
   function updateRow(index: number, patch: Partial<PaymentRowState>): void {
@@ -72,7 +105,12 @@ function SplitPaymentModal({
           <select
             value={row.method}
             onChange={(event) =>
-              updateRow(index, { method: event.target.value as PaymentMethod, customerId: '' })
+              updateRow(index, {
+                method: event.target.value as PaymentMethod,
+                customerId: '',
+                customerName: '',
+                customerMode: 'existing'
+              })
             }
           >
             <option value="efectivo">Efectivo</option>
@@ -86,17 +124,34 @@ function SplitPaymentModal({
             type="number"
           />
           {row.method === 'credito' && (
-            <select
-              value={row.customerId}
-              onChange={(event) => updateRow(index, { customerId: event.target.value })}
-            >
-              <option value="">Selecciona un cliente</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                value={row.customerMode === 'new' ? NEW_CUSTOMER_OPTION : row.customerId}
+                onChange={(event) => {
+                  const value = event.target.value
+                  if (value === NEW_CUSTOMER_OPTION) {
+                    updateRow(index, { customerMode: 'new', customerId: '' })
+                  } else {
+                    updateRow(index, { customerMode: 'existing', customerId: value, customerName: '' })
+                  }
+                }}
+              >
+                <option value="">Selecciona un cliente</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </option>
+                ))}
+                <option value={NEW_CUSTOMER_OPTION}>+ Nuevo cliente</option>
+              </select>
+              {row.customerMode === 'new' && (
+                <input
+                  value={row.customerName}
+                  onChange={(event) => updateRow(index, { customerName: event.target.value })}
+                  placeholder="Nombre del cliente nuevo"
+                />
+              )}
+            </>
           )}
           {rows.length > 1 && (
             <button type="button" onClick={() => removeRow(index)}>
@@ -114,16 +169,12 @@ function SplitPaymentModal({
         {!sumMatches && ' - la suma debe ser igual al total'}
       </p>
       {missingCreditCustomer && (
-        <p role="alert">Selecciona un cliente para la porcion a credito.</p>
-      )}
-      {customers.length === 0 && rows.some((row) => row.method === 'credito') && (
         <p role="alert">
-          No hay clientes registrados todavia. La gestion completa de clientes/creditos llega en el
-          siguiente PR; por ahora solo se puede vender a credito a un cliente ya capturado.
+          Selecciona un cliente para la porcion a credito, o elige "+ Nuevo cliente" y captura su nombre.
         </p>
       )}
 
-      <button type="button" disabled={!canConfirm} onClick={() => onConfirm(payments)}>
+      <button type="button" disabled={!canConfirm} onClick={() => onConfirm(drafts)}>
         Confirmar venta
       </button>
       <button type="button" onClick={onCancel}>

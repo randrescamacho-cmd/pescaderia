@@ -60,6 +60,22 @@ export function getOpenShift(db: DatabaseSync): Shift | null {
 }
 
 /**
+ * Busca un turno por id sin filtrar por `status` (a diferencia de
+ * `getOpenShift`). Usada por `db/queries/reports.ts` (Corte del Dia,
+ * tasks.md 8.1): el reporte MUST poder generarse tanto para un turno
+ * cerrado como para una vista previa de un turno TODAVIA abierto
+ * (daily-report/spec.md "Report Is Per Shift/Day" > "Generar corte antes de
+ * cerrar turno", tasks.md 8.7).
+ */
+export function getShiftById(db: DatabaseSync, shiftId: number): Shift | null {
+  const row = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId) as unknown as
+    | ShiftRow
+    | undefined
+
+  return row ? mapShift(row) : null
+}
+
+/**
  * Rechaza abrir un segundo turno mientras exista uno abierto
  * (cash-register/spec.md "Intentar abrir un segundo turno").
  */
@@ -168,7 +184,16 @@ export function computeExpectedCash(inputs: ExpectedCashInputs): number {
   return inputs.openingCash + inputs.cashInTotal + inputs.cashSalesTotal - inputs.cashOutTotal
 }
 
-function getShiftCashSummary(
+/**
+ * Exportada (PR4, antes privada): `db/queries/reports.ts` (Corte del Dia,
+ * tasks.md 8.1) necesita EXACTAMENTE los mismos 3 agregados que ya usa
+ * `closeShift` para conciliar caja -- la seccion "Dinero en caja" del
+ * Corte del Dia es la MISMA formula que `computeExpectedCash` (confirmado
+ * cruzando design.md/daily-report/spec.md contra el test de tasks.md 6.4:
+ * $700+$900-$300=$1,300 -- ver "getShiftCashSummary" describe block). Sin
+ * este export, reports.ts tendria que reescribir las 3 mismas queries SQL.
+ */
+export function getShiftCashSummary(
   db: DatabaseSync,
   shiftId: number
 ): { cashInTotal: number; cashOutTotal: number; cashSalesTotal: number } {

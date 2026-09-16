@@ -35,4 +35,15 @@ describe('registerCustomersIpc', () => {
     const customers = (await handler({})) as { name: string }[]
     expect(customers.map((c) => c.name)).toEqual(['Dona Rosa'])
   })
+
+  it('wires customers:create (tasks.md 7.6, inline creator in the split-payment modal)', async () => {
+    const db = openMigratedDb()
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCustomersIpc(ipcMain, db)
+
+    const handler = handlers.get('customers:create')!
+
+    const created = (await handler({}, 'Cliente Nuevo')) as { name: string }
+    expect(created.name).toBe('Cliente Nuevo')
+  })
 })

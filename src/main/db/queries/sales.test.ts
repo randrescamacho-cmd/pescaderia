@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { runMigrations } from '../migrate'
 import { listDepartments } from './departments'
 import { createProduct } from './products'
+import { createCustomer } from './customers'
 import { openShift } from './cash'
-import { createSale, getSaleById, validateSaleLines, validateSalePayments } from './sales'
+import { createSale, getSaleById, getSaleTicketData, validateSaleLines, validateSalePayments } from './sales'
 
 function openMigratedDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true })
@@ -245,6 +246,41 @@ function getOpenSalesCount(db: DatabaseSync): number {
   const row = db.prepare('SELECT COUNT(*) as count FROM sales').get() as { count: number }
   return row.count
 }
+
+describe('getSaleTicketData', () => {
+  it('enriches sale lines with product names and payments with customer names (Fase 9, ticket printing)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500)
+    const departmentId = mariscosDepartmentId(db)
+    const product = createProduct(db, { name: 'Camaron Grande', price: 120, departmentId })
+    const rosa = createCustomer(db, 'Dona Rosa')
+    const sale = createSale(db, {
+      shiftId: shift.id,
+      lines: [{ productId: product.id, quantity: 2 }],
+      payments: [
+        { method: 'efectivo', amount: 140 },
+        { method: 'credito', amount: 100, customerId: rosa.id }
+      ]
+    })
+
+    const ticket = getSaleTicketData(db, sale.id)
+
+    expect(ticket.total).toBe(sale.total)
+    expect(ticket.lines).toEqual([
+      { productName: 'Camaron Grande', quantity: 2, unitPrice: 120, lineTotal: 240 }
+    ])
+    expect(ticket.payments).toEqual([
+      { method: 'efectivo', amount: 140, customerName: null },
+      { method: 'credito', amount: 100, customerName: 'Dona Rosa' }
+    ])
+  })
+
+  it('throws for a nonexistent sale id', () => {
+    const db = openMigratedDb()
+
+    expect(() => getSaleTicketData(db, 999999)).toThrow()
+  })
+})
 
 describe('getSaleById', () => {
   it('retrieves a previously created sale with its lines and payments', () => {

@@ -28,8 +28,14 @@ export interface PaymentAmount {
  */
 export const AMOUNT_EPSILON = 0.005
 
-/** Redondea un monto a centavos (2 decimales), la unidad minima de moneda. */
-function roundToCents(amount: number): number {
+/**
+ * Redondea un monto a centavos (2 decimales), la unidad minima de moneda.
+ * Exportada (PR4) para reutilizarse fuera de este modulo -- `db/queries/
+ * credits.ts` (saldos de credito) y `db/queries/reports.ts` (totales del
+ * Corte del Dia) necesitan la MISMA logica de redondeo que ya corrigio el
+ * bug de PR3 (commit 64ceb2b), en vez de reinventarla.
+ */
+export function roundToCents(amount: number): number {
   return Math.round(amount * 100) / 100
 }
 

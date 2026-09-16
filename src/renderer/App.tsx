@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { api } from './ipc-client'
 import Caja from './screens/Caja'
+import CorteDelDia from './screens/CorteDelDia'
+import Creditos from './screens/Creditos'
 import Departamentos from './screens/Departamentos'
 import Login from './screens/Login'
 import Productos from './screens/Productos'
 import Ventas from './screens/Ventas'
 import type { Role } from '../shared/ipc-types'
 
-type Screen = 'home' | 'departamentos' | 'productos' | 'ventas' | 'caja'
+type Screen = 'home' | 'departamentos' | 'productos' | 'ventas' | 'caja' | 'creditos' | 'corte'
 
 /**
  * Estado de sesion del renderer (design.md: "vive en memoria del renderer,
@@ -49,6 +51,12 @@ function App(): React.JSX.Element {
           <button type="button" onClick={() => setScreen('caja')}>
             Caja
           </button>
+          <button type="button" onClick={() => setScreen('creditos')}>
+            Creditos
+          </button>
+          <button type="button" onClick={() => setScreen('corte')}>
+            Corte del Dia
+          </button>
           {role === 'administrador' && (
             <>
               <button type="button" onClick={() => setScreen('departamentos')}>
@@ -73,6 +81,8 @@ function App(): React.JSX.Element {
       )}
       {screen === 'ventas' && <Ventas />}
       {screen === 'caja' && <Caja />}
+      {screen === 'creditos' && <Creditos />}
+      {screen === 'corte' && <CorteDelDia />}
       {screen === 'departamentos' && role === 'administrador' && <Departamentos />}
       {screen === 'productos' && role === 'administrador' && <Productos />}
     </main>

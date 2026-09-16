@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import SplitPaymentModal from '../components/SplitPaymentModal'
+import SplitPaymentModal, { type PaymentDraft } from '../components/SplitPaymentModal'
 import { api } from '../ipc-client'
 import { bufferToBarcode, isBarcodeScan, type BufferedKey } from './barcode-scanner'
 import { computeSaleTotal } from '../../shared/sale-math'
@@ -40,6 +40,7 @@ function Ventas(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [lastSale, setLastSale] = useState<Sale | null>(null)
+  const [printError, setPrintError] = useState<string | null>(null)
 
   const bufferRef = useRef<BufferedKey[]>([])
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -118,7 +119,28 @@ function Ventas(): React.JSX.Element {
     ? products.filter((product) => product.name.toLowerCase().includes(search.trim().toLowerCase()))
     : []
 
-  async function handleConfirmPayment(payments: SalePaymentInput[]): Promise<void> {
+  /**
+   * Resuelve los borradores de porcion de pago del modal (tasks.md 7.6) a
+   * `SalePaymentInput` reales: una porcion `credito` con `customerName` (en
+   * vez de `customerId`) todavia no tiene un cliente real en `customers` --
+   * se crea AQUI, antes de `sales:create`, porque `sale_payments.customer_id`
+   * es una FK real que exige que el cliente ya exista al momento de insertar
+   * la fila de la venta.
+   */
+  async function resolvePayments(drafts: PaymentDraft[]): Promise<SalePaymentInput[]> {
+    const resolved: SalePaymentInput[] = []
+    for (const draft of drafts) {
+      let customerId = draft.customerId
+      if (draft.method === 'credito' && !customerId && draft.customerName) {
+        const created = await api.customers.create(draft.customerName)
+        customerId = created.id
+      }
+      resolved.push({ method: draft.method, amount: draft.amount, customerId })
+    }
+    return resolved
+  }
+
+  async function handleConfirmPayment(drafts: PaymentDraft[]): Promise<void> {
     if (!shift) return
     setError(null)
     try {
@@ -126,12 +148,54 @@ function Ventas(): React.JSX.Element {
         productId: line.productId,
         quantity: line.quantity
       }))
+      const payments = await resolvePayments(drafts)
       const sale = await api.sales.create({ shiftId: shift.id, lines: saleLines, payments })
+
+      // Fase 7 (PR4): conecta cada porcion `credito` de la venta al saldo
+      // real del cliente en `customer_credits` -- resuelve la limitacion
+      // documentada en apply-progress.md "PR3 -> Pendiente para PR4"
+      // (`sale_payments` ya guardaba la porcion `credito` desde PR3, pero
+      // nunca se reflejaba en el saldo de credito real del cliente).
+      for (const payment of sale.payments) {
+        if (payment.method === 'credito' && payment.customerId) {
+          await api.credit.grant({
+            customerId: payment.customerId,
+            saleId: sale.id,
+            shiftId: shift.id,
+            amount: payment.amount
+          })
+        }
+      }
+
+      setCustomers(await api.customers.list())
       setLastSale(sale)
       setLines([])
       setShowPaymentModal(false)
+
+      // Fase 9 (PR4, tasks.md 5.10): imprime el ticket de venta justo
+      // despues de cerrarla -- la venta YA quedo guardada en este punto, asi
+      // que un fallo de impresion (ticket-printing/spec.md "Impresora no
+      // disponible") no debe perder ni revertir la venta, solo mostrar el
+      // error y permitir reintentar con el boton "Reimprimir ticket".
+      await printSaleTicket(sale.id)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
+    }
+  }
+
+  async function printSaleTicket(saleId: number): Promise<void> {
+    setPrintError(null)
+    try {
+      const result = await api.print.sale(saleId)
+      if (!result.printed) {
+        setPrintError('Impresion cancelada por el usuario.')
+      }
+    } catch (caught) {
+      setPrintError(
+        `No se pudo imprimir el ticket (revisa que la impresora este conectada): ${
+          caught instanceof Error ? caught.message : String(caught)
+        }`
+      )
     }
   }
 
@@ -151,7 +215,15 @@ function Ventas(): React.JSX.Element {
       <h2>Ventas</h2>
       {error && <p role="alert">{error}</p>}
       {notFoundNotice && <p role="alert">{notFoundNotice}</p>}
-      {lastSale && <p>Venta #{lastSale.id} registrada. Total: ${lastSale.total.toFixed(2)}</p>}
+      {lastSale && (
+        <p>
+          Venta #{lastSale.id} registrada. Total: ${lastSale.total.toFixed(2)}
+          <button type="button" onClick={() => printSaleTicket(lastSale.id)}>
+            Reimprimir ticket
+          </button>
+        </p>
+      )}
+      {printError && <p role="alert">{printError}</p>}
 
       <p>
         Escanea un codigo de barras (sin foco en ningun campo) o busca un producto por nombre para

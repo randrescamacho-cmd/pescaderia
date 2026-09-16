@@ -1,5 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Sale, SaleInput, SaleLineInput, SalePaymentInput } from '../../../shared/ipc-types'
+import type {
+  Sale,
+  SaleInput,
+  SaleLineInput,
+  SalePaymentInput,
+  SaleTicketData
+} from '../../../shared/ipc-types'
 import { computeLineTotal, computeSaleTotal, paymentsMatchTotal } from '../../../shared/sale-math'
 import { getProductById } from './products'
 
@@ -133,6 +139,73 @@ export function getSaleById(db: DatabaseSync, saleId: number): Sale {
     ...mapSaleRow(saleRow),
     lines: lineRows.map(mapLineRow),
     payments: paymentRows.map(mapPaymentRow)
+  }
+}
+
+interface SaleTicketLineRow {
+  product_name: string
+  quantity: number
+  unit_price: number
+  line_total: number
+}
+
+interface SaleTicketPaymentRow {
+  method: 'efectivo' | 'tarjeta' | 'credito'
+  amount: number
+  customer_name: string | null
+}
+
+/**
+ * Enriquece una venta con los NOMBRES de producto/cliente (ticket-printing/
+ * spec.md "80mm Paper Width": el ticket debe mostrar nombre/cantidad/
+ * precio/total legibles, no ids). `Sale`/`SaleLineResult`/`SalePaymentResult`
+ * (PR3) solo guardan `productId`/`customerId` -- este JOIN es de solo
+ * lectura y no toca `createSale`/`getSaleById` (ya verificados en PR3).
+ */
+export function getSaleTicketData(db: DatabaseSync, saleId: number): SaleTicketData {
+  const saleRow = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId) as unknown as
+    | SaleRow
+    | undefined
+
+  if (!saleRow) {
+    throw new Error(`Venta ${saleId} no encontrada`)
+  }
+
+  const lineRows = db
+    .prepare(
+      `SELECT p.name as product_name, sl.quantity, sl.unit_price, sl.line_total
+       FROM sale_lines sl
+       JOIN products p ON p.id = sl.product_id
+       WHERE sl.sale_id = ?
+       ORDER BY sl.id`
+    )
+    .all(saleId) as unknown as SaleTicketLineRow[]
+
+  const paymentRows = db
+    .prepare(
+      `SELECT sp.method, sp.amount, c.name as customer_name
+       FROM sale_payments sp
+       LEFT JOIN customers c ON c.id = sp.customer_id
+       WHERE sp.sale_id = ?
+       ORDER BY sp.id`
+    )
+    .all(saleId) as unknown as SaleTicketPaymentRow[]
+
+  return {
+    id: saleRow.id,
+    createdAt: saleRow.created_at,
+    total: saleRow.total,
+    lines: lineRows.map((row) => ({
+      productName: row.product_name,
+      quantity: row.quantity,
+      unitPrice: row.unit_price,
+      lineTotal: row.line_total
+    })),
+    payments: paymentRows.map((row) => ({
+      method: row.method,
+      amount: row.amount,
+      customerName: row.customer_name
+    }))
   }
 }
 

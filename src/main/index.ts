@@ -6,7 +6,10 @@ import { runMigrations } from './db/migrate'
 import { registerAuthIpc } from './ipc/auth'
 import { registerCashIpc } from './ipc/cash'
 import { registerCatalogIpc } from './ipc/catalog'
+import { registerCreditIpc } from './ipc/credit'
 import { registerCustomersIpc } from './ipc/customers'
+import { registerPrintIpc } from './ipc/print'
+import { registerReportsIpc } from './ipc/reports'
 import { registerSalesIpc } from './ipc/sales'
 import { needsExperimentalSqliteFlag } from './node-version'
 
@@ -66,6 +69,9 @@ app.whenReady().then(() => {
   registerSalesIpc(ipcMain, db, session)
   registerCashIpc(ipcMain, db, session)
   registerCustomersIpc(ipcMain, db)
+  registerCreditIpc(ipcMain, db, session)
+  registerReportsIpc(ipcMain, db, session)
+  registerPrintIpc(ipcMain, db)
 
   createWindow()
 

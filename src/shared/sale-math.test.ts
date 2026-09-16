@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { computeLineTotal, computeSaleTotal, paymentsMatchTotal, sumPaymentAmounts } from './sale-math'
+import {
+  computeLineTotal,
+  computeSaleTotal,
+  paymentsMatchTotal,
+  roundToCents,
+  sumPaymentAmounts
+} from './sale-math'
+
+describe('roundToCents', () => {
+  it('rounds a raw float product down to the nearest cent (62.6715 -> 62.67)', () => {
+    expect(roundToCents(62.6715)).toBe(62.67)
+  })
+
+  it('rounds a raw float product up to the nearest cent (62.70815 -> 62.71)', () => {
+    expect(roundToCents(62.70815)).toBe(62.71)
+  })
+
+  it('leaves an already-rounded amount unchanged (100.5)', () => {
+    expect(roundToCents(100.5)).toBe(100.5)
+  })
+})
 
 describe('computeLineTotal', () => {
   it('multiplies quantity by unit price', () => {

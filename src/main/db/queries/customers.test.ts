@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { runMigrations } from '../migrate'
-import { listCustomers } from './customers'
+import { createCustomer, findCustomerByName, getCustomerById, listCustomers } from './customers'
 
 function openMigratedDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:', { enableForeignKeyConstraints: true })
@@ -33,5 +33,67 @@ describe('listCustomers', () => {
     db.prepare('UPDATE customers SET active = 0 WHERE id = ?').run(result.lastInsertRowid)
 
     expect(listCustomers(db)).toEqual([])
+  })
+})
+
+describe('createCustomer', () => {
+  it('creates a new active customer with the given name (customer-credit spec: "Registrar cliente nuevo al otorgar credito")', () => {
+    const db = openMigratedDb()
+
+    const customer = createCustomer(db, 'Don Beto')
+
+    expect(customer.name).toBe('Don Beto')
+    expect(customer.active).toBe(true)
+    expect(listCustomers(db).map((c) => c.name)).toEqual(['Don Beto'])
+  })
+
+  it('rejects an empty name', () => {
+    const db = openMigratedDb()
+
+    expect(() => createCustomer(db, '')).toThrow()
+  })
+
+  it('rejects a name that is only whitespace', () => {
+    const db = openMigratedDb()
+
+    expect(() => createCustomer(db, '   ')).toThrow()
+  })
+})
+
+describe('getCustomerById', () => {
+  it('returns an active customer by id', () => {
+    const db = openMigratedDb()
+    const created = createCustomer(db, 'Dona Rosa')
+
+    expect(getCustomerById(db, created.id)?.name).toBe('Dona Rosa')
+  })
+
+  it('returns null for a nonexistent id', () => {
+    const db = openMigratedDb()
+
+    expect(getCustomerById(db, 999999)).toBeNull()
+  })
+
+  it('returns null for an inactive customer', () => {
+    const db = openMigratedDb()
+    const created = createCustomer(db, 'Cliente Viejo')
+    db.prepare('UPDATE customers SET active = 0 WHERE id = ?').run(created.id)
+
+    expect(getCustomerById(db, created.id)).toBeNull()
+  })
+})
+
+describe('findCustomerByName', () => {
+  it('finds an active customer by exact name match', () => {
+    const db = openMigratedDb()
+    createCustomer(db, 'Don Beto')
+
+    expect(findCustomerByName(db, 'Don Beto')?.name).toBe('Don Beto')
+  })
+
+  it('returns null when no active customer matches the name', () => {
+    const db = openMigratedDb()
+
+    expect(findCustomerByName(db, 'Nadie')).toBeNull()
   })
 })

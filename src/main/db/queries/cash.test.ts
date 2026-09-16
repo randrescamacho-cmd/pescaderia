@@ -7,6 +7,8 @@ import {
   closeShift,
   computeExpectedCash,
   getOpenShift,
+  getShiftById,
+  getShiftCashSummary,
   listCashMovements,
   openShift,
   validateCashOutInput
@@ -147,6 +149,61 @@ describe('listCashMovements', () => {
     const movements = listCashMovements(db, shift.id)
 
     expect(movements.map((m) => m.type)).toEqual(['entrada', 'salida'])
+  })
+})
+
+describe('getShiftCashSummary', () => {
+  it('returns zero totals for a shift with no movements or sales', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500)
+
+    expect(getShiftCashSummary(db, shift.id)).toEqual({
+      cashInTotal: 0,
+      cashOutTotal: 0,
+      cashSalesTotal: 0
+    })
+  })
+
+  it('aggregates entradas, salidas and cash-only sale_payments for the shift (exported for reports.ts, tasks.md 8.1)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 700)
+    cashIn(db, shift.id, 200, 'cambio')
+    cashOut(db, shift.id, 300, 'compra de hielo', 'Hielera del Puerto')
+    const saleResult = db
+      .prepare('INSERT INTO sales (shift_id, subtotal, total) VALUES (?, 900, 900)')
+      .run(shift.id)
+    db.prepare("INSERT INTO sale_payments (sale_id, method, amount) VALUES (?, 'efectivo', 900)").run(
+      saleResult.lastInsertRowid
+    )
+
+    expect(getShiftCashSummary(db, shift.id)).toEqual({
+      cashInTotal: 200,
+      cashOutTotal: 300,
+      cashSalesTotal: 900
+    })
+  })
+})
+
+describe('getShiftById', () => {
+  it('returns an open shift by id (needed by reports.ts for the open-shift preview, tasks.md 8.7)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500)
+
+    expect(getShiftById(db, shift.id)?.status).toBe('open')
+  })
+
+  it('returns a closed shift by id (needed by reports.ts for the closed-shift Corte del Dia)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500)
+    closeShift(db, shift.id, 1, 500)
+
+    expect(getShiftById(db, shift.id)?.status).toBe('closed')
+  })
+
+  it('returns null for a nonexistent shift id', () => {
+    const db = openMigratedDb()
+
+    expect(getShiftById(db, 999999)).toBeNull()
   })
 })
 

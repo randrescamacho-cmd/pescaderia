@@ -135,8 +135,140 @@ export interface SalesApi {
   create(input: SaleInput): Promise<Sale>
 }
 
+// Fase 9 (Impresion). `Sale`/`SaleLineResult`/`SalePaymentResult` (PR3) solo
+// guardan `productId`/`customerId` -- un ticket impreso necesita el NOMBRE
+// del producto/cliente, no el id. `getSaleTicketData` (db/queries/sales.ts)
+// enriquece la venta con esos nombres via JOIN, sin tocar el contrato de
+// `Sale` ya usado por `sales:create` (PR3, verificado).
+export interface SaleTicketLine {
+  productName: string
+  quantity: number
+  unitPrice: number
+  lineTotal: number
+}
+
+export interface SaleTicketPayment {
+  method: PaymentMethod
+  amount: number
+  customerName: string | null
+}
+
+export interface SaleTicketData {
+  id: number
+  createdAt: string
+  total: number
+  lines: SaleTicketLine[]
+  payments: SaleTicketPayment[]
+}
+
 export interface CustomersApi {
   list(): Promise<Customer[]>
+  create(name: string): Promise<Customer>
+}
+
+// Fase 7 (Creditos de Clientes). Resuelve la limitacion documentada en
+// apply-progress.md "PR3 -> Pendiente para PR4": una porcion de venta
+// `credito` (ya escrita en `sale_payments` desde PR3) NO reflejaba nada en
+// `customer_credits` -- `credit:grant` es el paso que "conecta" ambas tablas
+// (ver design.md diagrama de secuencia "Credito de cliente", invoke separado
+// despues de `sales:create`).
+export interface GrantCreditInput {
+  customerId?: number | null
+  customerName?: string | null
+  saleId?: number | null
+  shiftId: number
+  amount: number
+  note?: string | null
+}
+
+export interface GrantCreditResult {
+  customer: Customer
+  creditId: number
+  balance: number
+}
+
+export interface PayCreditInput {
+  customerId: number
+  shiftId: number
+  amount: number
+  method?: 'efectivo' | 'tarjeta'
+}
+
+export interface PayCreditResult {
+  paymentId: number
+  amount: number
+  balance: number
+}
+
+export interface CustomerBalance extends Customer {
+  balance: number
+}
+
+export interface CreditPaymentRecord {
+  id: number
+  customerId: number
+  customerName: string
+  amount: number
+  createdAt: string
+}
+
+export interface CreditApi {
+  grant(input: GrantCreditInput): Promise<GrantCreditResult>
+  pay(input: PayCreditInput): Promise<PayCreditResult>
+  balance(customerId: number): Promise<number>
+  listBalances(): Promise<CustomerBalance[]>
+}
+
+// Fase 8 (Corte del Dia). daily-report/spec.md "Fixed Section Order": las 9
+// secciones exactas, en este orden. Cada campo de abajo corresponde 1:1 a
+// una seccion -- ver apply-progress.md "Fase 8" para la justificacion de
+// las 2 formulas donde este PR sigue el texto LITERAL de spec.md en vez de
+// la sugerencia SQL de design.md (Ventas de contado excluye credito;
+// Ventas totales = ventas de contado + pagos de creditos).
+export interface DepartmentSalesLine {
+  departmentId: number
+  departmentName: string
+  total: number
+}
+
+export interface DailyCutReport {
+  shiftId: number
+  shiftStatus: 'open' | 'closed'
+  isPreview: boolean
+  cashEntriesOpening: number
+  cashEntriesMovements: CashMovement[]
+  cashEntriesTotal: number
+  cashSalesTotal: number
+  supplierPayments: CashMovement[]
+  supplierPaymentsTotal: number
+  cashOnHand: number
+  bankTotal: number
+  totalSales: number
+  profit: number
+  uncostedProductCount: number
+  creditPayments: CreditPaymentRecord[]
+  creditPaymentsTotal: number
+  departmentSales: DepartmentSalesLine[]
+}
+
+export interface ReportsApi {
+  dailyCut(shiftId: number): Promise<DailyCutReport>
+}
+
+// Fase 9 (Impresion de Tickets). ticket-printing/spec.md: dialogo nativo de
+// impresion (`webContents.print()`), 80mm, sin ESC/POS crudo. Ambos metodos
+// devuelven `{ printed: true }` en exito; si el usuario CANCELA el dialogo
+// nativo, la promesa TAMBIEN resuelve `{ printed: false }` (no es un error --
+// ticket-printing/spec.md "Cancelar impresion": la venta/reporte ya
+// guardados permanecen intactos). Solo un fallo real (impresora
+// desconectada) rechaza la promesa, permitiendo reintentar (tasks.md 9.6).
+export interface PrintResult {
+  printed: boolean
+}
+
+export interface PrintApi {
+  sale(saleId: number): Promise<PrintResult>
+  dailyCut(shiftId: number): Promise<PrintResult>
 }
 
 // Fase 6 (Caja).
@@ -185,4 +317,7 @@ export interface PosApi {
   sales: SalesApi
   cash: CashApi
   customers: CustomersApi
+  credit: CreditApi
+  reports: ReportsApi
+  print: PrintApi
 }
