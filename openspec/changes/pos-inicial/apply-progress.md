@@ -7,7 +7,11 @@
 - PR3 (Fases 5-6, Ventas + Caja): completo (5.10 se cerró en PR4 por
   dependencia declarada de Fase 9) — ver sección "PR3" abajo.
 - PR4 (Fases 7-9, Créditos + Corte del Día + Impresión): completo — ver
-  sección "PR4" abajo.
+  sección "PR4" abajo. WARNING-1 de `verify-report-pr4.md` (redondeo de
+  `cashOnHand`) corregido en un fix puntual antes de PR5 — ver sección
+  "PR4 fix" abajo. WARNING-2 (`sales:create`+`credit:grant` no atómicos)
+  queda como **riesgo aceptado y diferido por decisión explícita del
+  usuario** — ver misma sección para el detalle completo, NO implementado.
 - PR5 (Fases 10-11, Empaquetado/CI + Validación en sitio): pendiente, único
   PR restante del plan de 5.
 
@@ -1000,3 +1004,202 @@ cambio `pos-inicial`. 215/215 tests pasan, build y typecheck limpios. Listo
 para `sdd-verify` de este work unit, o para continuar directo con PR5
 (Fases 10-11, último PR del plan) según la estrategia de entrega del
 usuario.
+
+---
+
+# PR4 fix: redondeo de cashOnHand
+
+## Scope de este fix
+
+Corrección puntual del hallazgo **WARNING-1** de `verify-report-pr4.md`
+(verificación independiente), antes de iniciar PR5. NO es un PR nuevo del
+plan de 5 — es un fix de bajo riesgo sobre `src/main/db/queries/reports.ts`,
+mismo patrón que el fix puntual aplicado antes de PR4 (ver sección "PR3
+fix: tolerancia de centavos" arriba).
+
+## El bug
+
+`getDailyCutReport` calcula 6 magnitudes de dinero en la sección "Corte del
+Día". El verificador confirmó que 5 de las 6 (`cashEntriesTotal`,
+`supplierPaymentsTotal`, `cashSalesTotal`, `bankTotal`, `totalSales`,
+`profit`) pasan por `roundToCents` (`src/shared/sale-math.ts`), pero
+`cashOnHand` (sección 4, "Dinero en caja") era la **única** que no —
+llamaba a `computeExpectedCash(...)` (`src/main/db/queries/cash.ts`) y
+devolvía el resultado crudo, sin redondear.
+
+Reproducción numérica real (confirmada por el verificador y de nuevo aquí
+con un test de integración contra `node:sqlite` real, no solo aritmética
+en aislado):
+
+```
+openingCash 500.35, cashInTotal 0, cashSalesTotal (62.71+85.55+33.33),
+cashOutTotal 300.10
+→ 381.84000000000003 (residuo real de punto flotante, no 381.84 exacto)
+```
+
+Es el mismo patrón de bug que causó el **CRITICAL** real de PR3 (commit
+`64ceb2b`: tolerancia de un centavo completo en `paymentsMatchTotal`,
+también originado en no redondear a centavos en el punto de cálculo). Aquí
+la severidad quedó en WARNING (no CRITICAL) porque los dos únicos
+consumidores de `report.cashOnHand` (`CorteDelDia.tsx` vía
+`.toFixed(2)`, y `ticket-template.ts` vía `money()` = `.toFixed(2)`)
+formatean con 2 decimales al mostrar, y `toFixed(2)` redondea
+correctamente incluso con ruido de `1e-13`. No había dato incorrecto
+visible al cajero o al administrador hoy — pero el residuo SÍ vivía en el
+dato (`DailyCutReport.cashOnHand`) antes de cualquier formateo, listo para
+volverse un bug real y visible el día que un PR futuro consuma ese campo
+para algo que no sea display (conciliación automática, alerta de
+diferencia, exportación a CSV/contabilidad). Ninguno de los tests
+existentes en `reports.test.ts` ejercitaba `cashOnHand` con montos
+fraccionarios (todos usaban enteros: 700, 900, 300, 1300) — ese gap de
+cobertura ocultaba la inconsistencia.
+
+## La corrección
+
+Se envolvió la llamada a `computeExpectedCash(...)` en `roundToCents`
+dentro de `getDailyCutReport` (`src/main/db/queries/reports.ts`),
+reutilizando la MISMA función de `src/shared/sale-math.ts` que ya usan las
+otras 5 magnitudes monetarias — sin reinventar lógica de redondeo, sin
+tocar `computeExpectedCash` en `cash.ts` (que sigue usándose sin redondeo
+en `closeShift`, donde la diferencia real sin redondear entre
+`countedCash` y `expectedCash` es información válida de conciliación, no
+un bug — eso quedó fuera de este fix, no era parte del hallazgo).
+
+## Evidencia TDD (RED → GREEN)
+
+### TDD Cycle Evidence
+
+| Comportamiento | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| `cashOnHand` redondeado a centavos exactos con montos fraccionarios | `src/main/db/queries/reports.test.ts` | Integration (`node:sqlite` real) | ✅ 13/13 (tests previos de reports.test.ts) | ✅ Escrito (`500.35+62.71+85.55+33.33-300.10` esperaba `381.84` exacto; código daba `381.84000000000003`, confirmado ejecutando el test) | ✅ Pasa tras envolver `computeExpectedCash(...)` en `roundToCents` | ✅ Cubierto por el test nuevo (residuo fraccionario, caso que faltaba) + 4 tests preexistentes que ya afirman `cashOnHand` exacto con enteros (600, 1300) y siguen pasando sin cambio de comportamiento — confirma que el wrap no rompe los casos donde no había residuo visible | ➖ None needed (wrap de una función pura ya existente, sin lógica nueva que refactorizar) |
+
+### Test Summary
+
+- **Total tests nuevos**: 1 (`reports.test.ts`)
+- **Total tests pasando (antes del fix, baseline/safety net)**: 215/215 (25 archivos)
+- **Total tests pasando (después del fix)**: 216/216 (25 archivos)
+- **Layers used**: Integration (1, `node:sqlite` real vía `openShift`/`createSale`/`cashOut`/`getDailyCutReport`)
+- **Approval tests**: N/A — no fue un refactor de comportamiento existente sin tests, fue una corrección de bug con un test nuevo que falla contra el código viejo (RED real, residuo reproducido) y pasa contra el código corregido (GREEN real)
+- **Pure functions modificadas**: ninguna nueva — se reutilizó `roundToCents` ya existente y exportada en `src/shared/sale-math.ts` desde PR4
+- **Mocks usados**: 0
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run src/main/db/queries/reports.test.ts  → 14/14 tests (13 previos + 1 nuevo)
+npx vitest run                                       → 25 files, 216/216 tests passed
+npm run build (typecheck:node + typecheck:web + electron-vite build) → limpio
+```
+
+## Archivos modificados
+
+| Archivo | Qué cambió |
+|---|---|
+| `src/main/db/queries/reports.ts` | `cashOnHand` ahora se envuelve en `roundToCents(...)` (reutiliza `src/shared/sale-math.ts`); comentario del docstring de `getDailyCutReport` (sección 4) actualizado para documentar el fix y por qué era la única magnitud sin redondear |
+| `src/main/db/queries/reports.test.ts` | +1 test de integración (`getDailyCutReport`) que reproduce el residuo de punto flotante real (`381.84000000000003`) con montos fraccionarios de centavos (turno con `openingCash` fraccionario, 3 ventas en efectivo con montos fraccionarios y una salida fraccionaria) y confirma que `cashOnHand` es ahora exactamente `381.84` |
+
+## Deviations from Design
+
+Ninguna — corrección de bug dentro del mismo criterio ya establecido en
+PR4 (reutilizar `roundToCents` de `sale-math.ts` para toda magnitud de
+dinero de `getDailyCutReport`), no un cambio de arquitectura ni de
+fórmula. Las 9 fórmulas del Corte del Día verificadas en
+`verify-report-pr4.md` no cambian — solo se corrige que la fórmula 4 use
+la misma disciplina de redondeo que las fórmulas 1, 3, 5, 6 y 7.
+
+## WARNING-2 (sales:create + credit:grant no atómicos): RIESGO ACEPTADO Y DIFERIDO — decisión explícita del usuario, NO implementado
+
+**Esto NO se implementó en este fix ni se implementará en PR5.** Se
+documenta aquí con el máximo detalle posible para que quien retome este
+proyecto en el futuro entienda que es una **decisión consciente**, no un
+descuido ni una tarea olvidada.
+
+### Qué dice el hallazgo (verify-report-pr4.md, WARNING-2)
+
+`Ventas.tsx` (`handleConfirmPayment`) ejecuta la venta con crédito en DOS
+llamadas IPC separadas y secuenciales desde el renderer, sin transacción
+que las una:
+
+1. `sales:create` — crea la venta y sus `sale_payments` (incluida la
+   porción con `method: 'credito'` y `customer_id`).
+2. **Solo después**, en un `for` separado, se llama `credit:grant` por
+   cada porción de crédito de esa venta — esto es lo que efectivamente
+   incrementa `customer_credits` (el saldo real que el cliente debe).
+
+Si el proceso de Electron muere **entre** ambas llamadas (ej. corte de
+luz), la venta queda guardada con la porción de crédito ya registrada en
+`sale_payments`, pero `customer_credits` NUNCA se actualiza — el negocio
+pierde el registro de que ese cliente debe dinero. Es dinero real,
+adeudado por un cliente, que desaparece silenciosamente del sistema de
+crédito aunque la venta sí quedó registrada.
+
+Edge case adicional encontrado por el verificador (no solo el riesgo de
+atomicidad): `SplitPaymentModal.tsx` no valida que una porción de crédito
+tenga monto mayor a 0 antes de habilitar "Confirmar venta". Si un cajero
+deja una porción de crédito en 0 mientras otra porción cubre el resto,
+la venta se guarda con éxito, pero el loop de `credit:grant` en
+`Ventas.tsx` lanza (porque `grantCredit` rechaza monto ≤ 0), dejando la
+pantalla en un estado confuso: la venta YA está guardada (sin rollback),
+pero el flujo se interrumpe antes de limpiar el estado — un reintento del
+cajero crearía una segunda venta duplicada por el mismo total.
+
+### Por qué es un riesgo real y no solo teórico
+
+`openspec/config.yaml` documenta explícitamente que el local de este
+negocio ("Bahía de los Ángeles") **pierde luz e internet seguido**.
+Aunque la app es 100% offline (no depende de internet para operar), un
+corte de luz SÍ puede matar el proceso de Electron a la mitad de la
+ventana entre `sales:create` y `credit:grant` — es exactamente el
+escenario operativo real que el propio negocio ya identificó como su
+riesgo principal, aplicado ahora a dinero adeudado por clientes en vez de
+a dinero en caja.
+
+### Por qué queda diferido y no se corrige ahora
+
+Instrucción explícita del usuario para esta sesión: corregir ÚNICAMENTE
+el WARNING-1 (redondeo de `cashOnHand`) como fix puntual antes de PR5, y
+documentar el WARNING-2 como riesgo aceptado y diferido — sin
+implementarlo, sin tocar la atomicidad de créditos, sin tocar Fases
+10-11. Cerrar el WARNING-2 correctamente requiere mover la escritura de
+`customer_credits` a la MISMA transacción SQL de `createSale` (mencionado
+como opción en `verify-report-pr4.md`, Issues Found #2), lo cual es un
+cambio de mayor alcance sobre código ya verificado (Fases 5-9) — no un fix
+de una línea como el de `cashOnHand`. El usuario decidió priorizar avanzar
+a PR5 sin ese refactor por ahora, aceptando la ventana de riesgo descrita
+arriba.
+
+### Qué debe saber quien retome esto
+
+- **Síntoma si el riesgo se materializa**: una venta con porción de
+  crédito aparece en `sales`/`sale_payments` (y en reportes de ventas),
+  pero el saldo del cliente en `customer_credits`/`getCustomerBalance` NO
+  refleja esa deuda. El negocio cree que cobró crédito que en realidad
+  nunca quedó registrado como pendiente.
+- **Cómo detectarlo en producción**: comparar `SUM(sale_payments.amount)
+  WHERE method='credito')` contra `SUM(customer_credits.amount)` — si no
+  coinciden, hay ventas de crédito "huérfanas" sin su alta correspondiente
+  en `customer_credits`.
+- **Cómo cerrarlo cuando se decida abordarlo**: mover el `INSERT` de
+  `customer_credits` (hoy en `credit:grant`/`grantCredit`) dentro de la
+  misma transacción SQL que ya usa `createSale` (`src/main/db/queries/
+  sales.ts`), para que ambas escrituras confirmen o fallen juntas.
+  Adicionalmente, corregir el edge case de `SplitPaymentModal.tsx`
+  validando monto > 0 en porciones de crédito antes de habilitar
+  "Confirmar venta", para eliminar por completo la ventana de error
+  post-guardado descrita arriba.
+- **No confundir con el WARNING-1**: son hallazgos independientes del
+  mismo `verify-report-pr4.md`. El WARNING-1 (este fix) ya está resuelto.
+  El WARNING-2 (esta sección) sigue abierto por decisión explícita, no
+  por parte de este fix.
+
+## Status (PR4 fix)
+
+Fix completo y acotado exactamente al WARNING-1. 216/216 tests pasan
+(215 previos + 1 nuevo), build y typecheck limpios. El WARNING-1 de
+`verify-report-pr4.md` queda resuelto: las 6 magnitudes de dinero de
+`getDailyCutReport` ahora pasan consistentemente por `roundToCents`. El
+WARNING-2 queda **explícitamente abierto y diferido** (ver sección
+arriba) — no se tocó la atomicidad de `sales:create`+`credit:grant`, ni
+las Fases 10-11. Listo para continuar con PR5 según la estrategia de
+entrega del usuario, con el WARNING-2 documentado como riesgo conocido y
+aceptado.

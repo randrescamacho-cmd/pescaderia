@@ -140,7 +140,9 @@ function getDepartmentSalesForShift(db: DatabaseSync, shiftId: number): Departme
  * 1. Entradas efectivo = inicio de caja + entradas de cambio
  * 2. Ventas de contado = efectivo + tarjeta (EXCLUYE credito)
  * 3. Salidas/Proveedores = cash_movements tipo 'salida'
- * 4. Dinero en caja = (1) + ventas efectivo - (3) [= computeExpectedCash]
+ * 4. Dinero en caja = (1) + ventas efectivo - (3) [= computeExpectedCash,
+ *    redondeado con roundToCents -- fix WARNING-1 verify-report-pr4.md,
+ *    era la unica de las 6 magnitudes de dinero que no se redondeaba]
  * 5. Dinero en bancos = ventas con tarjeta
  * 6. Ventas totales = (2) + Pagos de creditos (8)
  * 7. Ganancia del dia = ver computeProfit
@@ -161,12 +163,14 @@ export function getDailyCutReport(db: DatabaseSync, shiftId: number): DailyCutRe
   const cashEntriesTotal = roundToCents(shift.openingCash + cashSummary.cashInTotal)
   const cashSalesTotal = sumSalePaymentsForShift(db, shiftId, ['efectivo', 'tarjeta'])
   const supplierPaymentsTotal = roundToCents(cashSummary.cashOutTotal)
-  const cashOnHand = computeExpectedCash({
-    openingCash: shift.openingCash,
-    cashInTotal: cashSummary.cashInTotal,
-    cashSalesTotal: cashSummary.cashSalesTotal,
-    cashOutTotal: cashSummary.cashOutTotal
-  })
+  const cashOnHand = roundToCents(
+    computeExpectedCash({
+      openingCash: shift.openingCash,
+      cashInTotal: cashSummary.cashInTotal,
+      cashSalesTotal: cashSummary.cashSalesTotal,
+      cashOutTotal: cashSummary.cashOutTotal
+    })
+  )
   const bankTotal = sumSalePaymentsForShift(db, shiftId, ['tarjeta'])
 
   const { profit, uncostedProductCount } = computeProfit(getSaleLinesForShift(db, shiftId))

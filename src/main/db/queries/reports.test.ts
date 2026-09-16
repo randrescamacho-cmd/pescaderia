@@ -164,6 +164,40 @@ describe('getDailyCutReport', () => {
     expect(report.cashOnHand).toBe(1300)
   })
 
+  it('rounds cashOnHand to exact cents even with fractional cash sales that produce floating-point residue (same pattern as the PR3 CRITICAL fix, WARNING-1 verify-report-pr4.md)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500.35)
+    cashOut(db, shift.id, 300.1, 'compra de hielo', 'Hielera del Puerto')
+
+    const mariscos = departmentId(db, 'Mariscos')
+    const camaron = createProduct(db, { name: 'Camaron', price: 62.71, departmentId: mariscos })
+    const pulpo = createProduct(db, { name: 'Pulpo', price: 85.55, departmentId: mariscos })
+    const ceviche = createProduct(db, { name: 'Ceviche', price: 33.33, departmentId: mariscos })
+
+    createSale(db, {
+      shiftId: shift.id,
+      lines: [{ productId: camaron.id, quantity: 1 }],
+      payments: [{ method: 'efectivo', amount: 62.71 }]
+    })
+    createSale(db, {
+      shiftId: shift.id,
+      lines: [{ productId: pulpo.id, quantity: 1 }],
+      payments: [{ method: 'efectivo', amount: 85.55 }]
+    })
+    createSale(db, {
+      shiftId: shift.id,
+      lines: [{ productId: ceviche.id, quantity: 1 }],
+      payments: [{ method: 'efectivo', amount: 33.33 }]
+    })
+
+    const report = getDailyCutReport(db, shift.id)
+
+    // 500.35 + 0 (sin entradas de cambio) + (62.71+85.55+33.33) - 300.10 = 381.84
+    // exacto en aritmetica decimal; en floats JS/SQLite deja 381.84000000000003
+    // sin roundToCents (reproducido en Node: 500.35+0+(62.71+85.55+33.33)-300.10).
+    expect(report.cashOnHand).toBe(381.84)
+  })
+
   it('throws for a nonexistent shift id', () => {
     const db = openMigratedDb()
 
