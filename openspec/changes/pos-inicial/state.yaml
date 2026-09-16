@@ -24,11 +24,13 @@ pr_plan:
     note: "5.10 (impresion de ticket) diferida a PR4 por dependencia de Fase 9, confirmado por verificacion"
   - id: PR4
     scope: "Creditos + Corte del Dia + Impresion (Fases 7-9)"
-    status: done_pending_verify
-    note: "20/20 tasks (7/7+7/7+6/6) + cierre de 5.10 diferida desde PR3. 215/215 tests. Ver apply-progress.md seccion 'PR4'."
+    status: done_verified
+    verify_report: verify-report-pr4.md
+    verdict: PASS (0 CRITICAL, 2 WARNING). WARNING-1 (redondeo cashOnHand) corregido en commit b425ea3.
+    accepted_risk: "WARNING-2: sales:create + credit:grant no son atomicos (2 llamadas IPC separadas). Riesgo real dado que el local pierde luz seguido - si se corta la energia entre ambas llamadas, la venta queda registrada pero el saldo de credito del cliente no se actualiza. Decision EXPLICITA del usuario: diferir, no implementar ahora. Ver apply-progress.md seccion 'RIESGO ACEPTADO Y DIFERIDO' para sintomas/deteccion/remediacion si se retoma."
   - id: PR5
     scope: "Empaquetado/CI + Validacion en sitio (Fases 10-11)"
-    status: pending
+    status: in_progress
 git: local repo initialized, root commit dc5656e (docs SDD)
 
 phases:
