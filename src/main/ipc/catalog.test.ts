@@ -71,4 +71,91 @@ describe('registerCatalogIpc role guard', () => {
     const departments = (await handler({})) as unknown[]
     expect(departments).toHaveLength(9)
   })
+
+  // PR2 follow-up (verify-report-pr2.md WARNING 1): solo catalog:createDepartment
+  // tenia un test de guard a nivel de wiring IPC. Los otros 5 canales mutantes
+  // comparten el mismo patron assertRole(...) pero no tenian un test dedicado
+  // que invocara el canal real y confirmara el rechazo. Estos 5 tests usan IDs
+  // reales (departamento 1, sembrado por la migracion 3:seed_departments; y un
+  // producto creado en el propio test) para que, si alguien borra la linea
+  // assertRole(...) de un handler, la operacion SUCEDA sin lanzar (porque el
+  // ID es valido y la mutacion es legitima) y el test falle -- no son
+  // tautologicos.
+  it('rejects catalog:updateDepartment when the active session role is usuario', () => {
+    const db = openMigratedDb()
+    const session = createSessionStore()
+    session.login('usuario')
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCatalogIpc(ipcMain, db, session)
+
+    const handler = handlers.get('catalog:updateDepartment')!
+
+    expect(() => handler({}, 1, { name: 'Ferreteria' })).toThrow()
+  })
+
+  it('rejects catalog:deleteDepartment when the active session role is usuario', () => {
+    const db = openMigratedDb()
+    const session = createSessionStore()
+    session.login('usuario')
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCatalogIpc(ipcMain, db, session)
+
+    const handler = handlers.get('catalog:deleteDepartment')!
+
+    expect(() => handler({}, 1)).toThrow()
+  })
+
+  it('rejects catalog:createProduct when the active session role is usuario', () => {
+    const db = openMigratedDb()
+    const session = createSessionStore()
+    session.login('usuario')
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCatalogIpc(ipcMain, db, session)
+
+    const handler = handlers.get('catalog:createProduct')!
+
+    expect(() => handler({}, { name: 'Camaron', price: 100, departmentId: 1 })).toThrow()
+  })
+
+  it('rejects catalog:updateProduct when the active session role is usuario (Reasignar producto a otro departamento)', async () => {
+    const db = openMigratedDb()
+    const session = createSessionStore()
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCatalogIpc(ipcMain, db, session)
+
+    session.login('administrador')
+    const createProduct = handlers.get('catalog:createProduct')!
+    const product = (await createProduct({}, {
+      name: 'Camaron',
+      price: 120,
+      departmentId: 1
+    })) as { id: number }
+
+    session.login('usuario')
+    const updateProduct = handlers.get('catalog:updateProduct')!
+
+    expect(() =>
+      updateProduct({}, product.id, { name: 'Camaron', price: 120, departmentId: 2 })
+    ).toThrow()
+  })
+
+  it('rejects catalog:deleteProduct when the active session role is usuario', async () => {
+    const db = openMigratedDb()
+    const session = createSessionStore()
+    const { ipcMain, handlers } = createFakeIpcMain()
+    registerCatalogIpc(ipcMain, db, session)
+
+    session.login('administrador')
+    const createProduct = handlers.get('catalog:createProduct')!
+    const product = (await createProduct({}, {
+      name: 'Souvenir llavero',
+      price: 50,
+      departmentId: 1
+    })) as { id: number }
+
+    session.login('usuario')
+    const deleteProduct = handlers.get('catalog:deleteProduct')!
+
+    expect(() => deleteProduct({}, product.id)).toThrow()
+  })
 })
