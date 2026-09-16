@@ -69,27 +69,27 @@ Chain strategy: pending
 
 ## Phase 5: Ventas
 
-- [ ] 5.1 IPC `sales:create` — transaction insert `sales`+`sale_lines` (snapshot dept/cost/price)+`sale_payments`
-- [ ] 5.2 Validate: quantity > 0 per line; sale must have ≥1 line
-- [ ] 5.3 Validate: sum of payment portions == total; `credito` portion requires customer
-- [ ] 5.4 RED: `node:test` — split-sum mismatch rejected, empty sale rejected, credito-without-customer rejected
-- [ ] 5.5 GREEN: implement 5.1-5.3 to pass 5.4
-- [ ] 5.6 Renderer: Ventas screen — line entry, running total, remove line
-- [ ] 5.7 Renderer: barcode buffer listener (`keydown` gap <50ms + Enter heuristic)
-- [ ] 5.8 Renderer: "producto no encontrado" toast on unknown barcode
-- [ ] 5.9 Renderer: split-payment modal (efectivo/tarjeta/credito) with customer picker for credito
-- [ ] 5.10 Wire sale-close success to ticket printing IPC (Phase 9)
+- [x] 5.1 IPC `sales:create` — transaction insert `sales`+`sale_lines` (snapshot dept/cost/price)+`sale_payments`
+- [x] 5.2 Validate: quantity > 0 per line; sale must have ≥1 line
+- [x] 5.3 Validate: sum of payment portions == total; `credito` portion requires customer
+- [x] 5.4 RED: `node:test` — split-sum mismatch rejected, empty sale rejected, credito-without-customer rejected (usando `vitest`, ver apply-progress.md Deviations)
+- [x] 5.5 GREEN: implement 5.1-5.3 to pass 5.4
+- [x] 5.6 Renderer: Ventas screen — line entry, running total, remove line
+- [x] 5.7 Renderer: barcode buffer listener (`keydown` gap <50ms + Enter heuristic)
+- [x] 5.8 Renderer: "producto no encontrado" toast on unknown barcode
+- [x] 5.9 Renderer: split-payment modal (efectivo/tarjeta/credito) with customer picker for credito — selector simplificado (solo clientes ya capturados, ver apply-progress.md "Limitaciones")
+- [ ] 5.10 Wire sale-close success to ticket printing IPC (Phase 9) — diferido a PR4 (Fase 9 no implementada en este PR)
 
 ## Phase 6: Caja
 
-- [ ] 6.1 IPC `cash:openShift` — reject if an open shift already exists
-- [ ] 6.2 IPC `cash:cashIn`/`cash:cashOut` — proveedor+motivo required on salida
-- [ ] 6.3 IPC `cash:closeShift` — compute expected cash, accept counted cash, store difference
-- [ ] 6.4 RED: `node:test` — second-open rejected, salida-without-motivo rejected, reconciliation formula ($700+$900-$300=$1,300)
-- [ ] 6.5 GREEN: implement 6.1-6.3 to pass 6.4
-- [ ] 6.6 Renderer: Apertura de turno screen
-- [ ] 6.7 Renderer: Entradas/Salidas screen
-- [ ] 6.8 Renderer: Cierre de turno screen showing expected vs counted diff
+- [x] 6.1 IPC `cash:openShift` — reject if an open shift already exists
+- [x] 6.2 IPC `cash:cashIn`/`cash:cashOut` — proveedor+motivo required on salida
+- [x] 6.3 IPC `cash:closeShift` — compute expected cash, accept counted cash, store difference
+- [x] 6.4 RED: `node:test` — second-open rejected, salida-without-motivo rejected, reconciliation formula ($700+$900-$300=$1,300) (usando `vitest`)
+- [x] 6.5 GREEN: implement 6.1-6.3 to pass 6.4
+- [x] 6.6 Renderer: Apertura de turno screen
+- [x] 6.7 Renderer: Entradas/Salidas screen
+- [x] 6.8 Renderer: Cierre de turno screen showing expected vs counted diff
 
 ## Phase 7: Créditos de Clientes
 

@@ -1,10 +1,13 @@
 # Apply Progress: pos-inicial
 
-## Estado global: 29/29 tareas de Fase 1-4 completas (5/5 + 8/8 + 8/8 + 8/8)
+## Estado global: 45/46 tareas de Fase 1-6 completas (5/5 + 8/8 + 8/8 + 8/8 + 9/10 + 8/8)
 
 - PR1 (Fases 1-2, Setup + BD/Migraciones): completo, verificado.
 - PR2 (Fases 3-4, Auth PIN + Catálogo): completo — ver sección "PR2" abajo.
-- PR3 (Fases 5-6, Ventas + Caja): pendiente, siguiente en el plan de 5 PRs.
+- PR3 (Fases 5-6, Ventas + Caja): completo (9/10 + 8/8; tarea 5.10 diferida a
+  PR4 por depender de Fase 9/Impresión) — ver sección "PR3" abajo.
+- PR4 (Fases 7-9, Créditos + Corte del Día + Impresión): pendiente, siguiente
+  en el plan de 5 PRs.
 
 ---
 
@@ -449,3 +452,230 @@ resueltos. El WARNING 3 (housekeeping de `state.yaml`) también se resolvió
 actualizando `pr_plan[PR2].followup` y `phases.apply.current_pr`. Sin cambios
 en Fases 5-11. Listo para que el usuario decida si re-verificar este
 follow-up puntual o continuar directo con PR3 (Fases 5-6, Ventas + Caja).
+
+---
+
+# PR3 (Fases 5-6): Ventas + Caja
+
+## Scope de este PR
+
+Solo Fase 5 (Ventas) y Fase 6 (Caja), por plan de 5 PRs encadenados
+(`tasks.md` → Review Workload Forecast → Suggested Work Units → Unit 3).
+Fases 7-11 quedan explícitamente fuera — ver "Pendiente para PR4" abajo. NO
+se tocó ningún archivo de `src/main/printing/`, créditos completos
+(`credit:grant`/`credit:pay`/`credit:balance`) ni corte del día.
+
+## Estado: 17/18 tareas de Fase 5+6 completas (9/10 + 8/8)
+
+Tarea 5.10 ("Wire sale-close success to ticket printing IPC") queda
+explícitamente sin marcar: depende de `printing/ticket-template.ts` y
+`printing/print.ts` (Fase 9, PR4), que no existen todavía en este PR. No es
+un hallazgo, es una dependencia de fase declarada desde `tasks.md`.
+
+## Decisiones tomadas
+
+| Decisión | Elegido | Por qué |
+|---|---|---|
+| Guard de Ventas/Caja: rol requerido | `assertAuthenticated(session.getRole())` (nueva función en `auth/session.ts`) — NO `assertRole(role, 'administrador')` | El usuario pidió explícitamente "cualquier rol autenticado puede vender, no solo admin", y lo mismo aplica a operar caja (ninguna spec de `cash-register` restringe por rol). `assertAuthenticated` solo exige que exista una sesión activa (rechaza `null`), sin importar cuál de los 2 roles sea — distinto de `assertRole`, que exige coincidencia exacta con un rol especifico. |
+| Matemática de venta compartida | Nuevo módulo `src/shared/sale-math.ts` (`computeSaleTotal`, `paymentsMatchTotal`, `sumPaymentAmounts`) importado TANTO por `db/queries/sales.ts` (main) COMO por `Ventas.tsx`/`SplitPaymentModal.tsx` (renderer) | Evita reimplementar la fórmula de total/validación de suma de pagos dos veces (una en el backend real que valida, otra en el frontend que solo pre-valida para UX). Es la misma justificación que ya motivó `shared/ipc-types.ts` en PR2 (Decision 2 de design.md) — aquí se extiende a lógica pura, no solo tipos. Es 100% testeable sin Electron/DOM (11 tests unitarios, cero mocks). |
+| Snapshot de producto para `sales:create` | Nueva función `getProductById(db, id)` en `products.ts`, filtrando `active = 1` | `sale_lines` necesita el precio/costo/departamento del producto AL MOMENTO de la venta (design.md Decision 7). Un producto soft-eliminado no MUST poder venderse — se reusa el mismo criterio de `findByBarcode` (que ya filtraba `active = 1`). |
+| Selector de cliente para pago a crédito | `customers:list` (IPC sin guard, solo lectura) + `<select>` en `SplitPaymentModal.tsx` listando clientes YA CAPTURADOS. **NO se implementó "crear cliente nuevo" en este PR.** | Instrucción explícita del usuario: "si no hay UI de clientes todavía, un selector simple por ID o nombre ya capturado basta, documenta la limitación". `customer-credit/spec.md` "Registrar cliente nuevo al otorgar crédito" pertenece a `credit:grant` (tasks.md 7.1, Fase 7/PR4) — implementarlo aquí habría sido adelantar alcance de otro PR sin que el usuario lo pidiera. **Limitación documentada**: mientras no exista ningún cliente en `customers` (tabla vacía hasta que alguien la llene manualmente o hasta PR4), la porción `credito` es inutilizable desde la UI — el backend (`sales:create` + `validateSalePayments`) sigue rechazando correctamente una porción `credito` sin `customerId`, y el modal muestra un aviso explícito ("No hay clientes registrados todavía...") en ese caso, en vez de fallar en silencio. |
+| Mapeo `Role` → `roles.id` | Nueva función `getRoleId(db, role)` en `db/queries/roles.ts` | Documentado como pendiente explícito en el "Pendiente para PR3" de PR2 ("falta mapear Role a roles.id"). Necesario para las FK `shifts.opened_by_role_id`/`closed_by_role_id`. Usada por `ipc/cash.ts` en `openShift`/`closeShift`. |
+| Un solo componente `Caja.tsx` (no 3 pantallas separadas) | Apertura + Entradas/Salidas + Cierre como secciones de un mismo archivo | `design.md` "Estructura de Carpetas" lista literalmente `screens/ # login, ventas, catalogo, caja, creditos, corte-dia` — una sola pantalla "caja", no tres. `tasks.md` 6.6/6.7/6.8 se leen como 3 sub-funcionalidades de esa pantalla, mismo criterio que `Productos.tsx` ya usó para crear+editar en un solo archivo (PR2 follow-up). |
+| Escáner USB-HID: listener a nivel de documento + guard de foco | `document.addEventListener('keydown', ...)` en `Ventas.tsx`, ignorando el evento si `document.activeElement`/`event.target` es `INPUT`/`TEXTAREA`/`SELECT` | `design.md` "Escáner USB-HID" pide explícitamente un listener a nivel de documento (no un campo de texto aislado), pero `sales-transactions/spec.md` describe "un campo de texto con foco". Sin el guard de foco, cualquier tecleo en el buscador por nombre o en el modal de pago dividido alimentaría el buffer del escáner y rompería la escritura normal. La heurística (`isBarcodeScan`, gap < 50ms entre teclas) queda en un módulo puro separado (`screens/barcode-scanner.ts`) para poder probarla con timestamps sintéticos, sin simular eventos de teclado reales ni temporizadores. |
+| Reconciliación de caja: no se persiste la "diferencia" en una columna nueva | `closeShift` guarda solo `closing_cash_counted`; la diferencia (`countedCash - expectedCash`) se calcula y se devuelve en la respuesta del IPC, no se agrega una columna `difference` al esquema | El "dinero esperado" es 100% derivable en cualquier momento a partir de datos ya persistidos (`opening_cash` + `cash_movements` + `sale_payments` del turno) — guardar una columna redundante duplicaría una fórmula ya expresada en `computeExpectedCash`. `cash-register/spec.md` "Cash Reconciliation at Close" solo exige "mostrar la diferencia" y "dejar constancia" del cierre (que sí queda: `closing_cash_counted` + `status='closed'`), no exige una columna de diferencia explícita. |
+
+## Deviations from Design
+
+Ninguna deviation de esquema en este PR — el esquema de PR1 ya soportaba
+`sale_payments.method IN ('efectivo','tarjeta','credito')` +
+`sale_payments.customer_id` y `cash_movements.provider` (deviations
+documentadas en PR1, anticipando exactamente esta Fase 5/6). Las únicas
+deviations son de **estructura de archivos**, documentadas en la tabla de
+Decisiones arriba:
+
+1. Nuevo módulo `src/shared/sale-math.ts` (no está en el árbol de
+   `design.md`, mismo criterio que `src/shared/ipc-types.ts` de PR2).
+2. `Caja.tsx` es un solo archivo, no tres pantallas separadas (design.md
+   solo lista una pantalla "caja" en su estructura de carpetas — es
+   consistente, no una deviation real, solo se documenta por claridad).
+3. Deviation de test runner ya documentada en PR1/PR2 se repite aquí:
+   `tasks.md` 5.4/6.4 dicen `node:test`; se usó `vitest` (mismo criterio,
+   `openspec/config.yaml` fija `npx vitest run`).
+
+## Limitaciones documentadas (alcance explícito de este PR)
+
+1. **Selector de cliente para pago a crédito es de solo lectura de
+   clientes ya existentes.** No hay forma de crear un cliente nuevo desde
+   la pantalla de Ventas en este PR — eso es `credit:grant` (Fase 7/PR4).
+   Si la tabla `customers` está vacía, una porción `credito` no se puede
+   completar desde la UI (el backend la sigue rechazando correctamente).
+2. **La porción `credito` de una venta NO otorga crédito real todavía.**
+   `sales:create` inserta la fila en `sale_payments` con
+   `method='credito'` y el `customer_id` elegido, pero NO inserta en
+   `customer_credits` — esa tabla y su lógica de saldo pertenecen a
+   `credit:grant` (Fase 7/PR4, según el diagrama de secuencia de
+   design.md "Crédito de cliente", que muestra un `invoke('credit:grant',
+   ...)` SEPARADO después de la venta). El renderer de este PR no dispara
+   ese segundo `invoke` porque el handler no existe aún.
+3. **Tarea 5.10 (imprimir ticket al cerrar venta) no implementada.**
+   Depende de `printing/ticket-template.ts`/`print.ts` (Fase 9, PR4).
+4. **No hay listado histórico de ventas ni de turnos cerrados en la UI.**
+   Solo se muestra el turno actualmente abierto y sus movimientos; ver
+   ventas/turnos pasados requiere el Corte del Día (Fase 8, PR4).
+
+## Archivos creados
+
+| Archivo | Qué hace |
+|---|---|
+| `src/shared/sale-math.ts` + `.test.ts` | Matemática pura de venta compartida main/renderer: `computeLineTotal`, `computeSaleTotal`, `sumPaymentAmounts`, `paymentsMatchTotal` |
+| `src/main/db/queries/sales.ts` + `.test.ts` | `validateSaleLines`, `validateSalePayments` (puras), `createSale` (transaccional, snapshot dept/cost/price), `getSaleById` |
+| `src/main/db/queries/cash.ts` + `.test.ts` | `getOpenShift`, `openShift` (bloquea doble turno), `cashIn`, `cashOut` (+ `validateCashOutInput` pura), `listCashMovements`, `computeExpectedCash` (pura), `closeShift` |
+| `src/main/db/queries/customers.ts` + `.test.ts` | `listCustomers` (solo lectura, selector de crédito) |
+| `src/main/ipc/sales.ts` + `.test.ts` | Wiring `sales:create` con guard `assertAuthenticated` (cualquier rol) |
+| `src/main/ipc/cash.ts` + `.test.ts` | Wiring `cash:getOpenShift/openShift/cashIn/cashOut/listMovements/closeShift` |
+| `src/main/ipc/customers.ts` + `.test.ts` | Wiring `customers:list` (sin guard) |
+| `src/renderer/screens/barcode-scanner.ts` + `.test.ts` | Heurística pura del escáner USB-HID (`isBarcodeScan`, `bufferToBarcode`) |
+| `src/renderer/screens/Ventas.tsx` | Pantalla de Ventas: búsqueda por nombre, escáner (listener de documento + guard de foco), líneas con cantidad/subtotal/total, modal de pago dividido |
+| `src/renderer/screens/Caja.tsx` | Pantalla de Caja: apertura de turno, entradas/salidas, cierre con esperado/contado/diferencia |
+| `src/renderer/components/SplitPaymentModal.tsx` | Modal de pago dividido reusable: porciones efectivo/tarjeta/crédito, selector de cliente para crédito, validación de suma en tiempo real |
+
+## Archivos modificados
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/main/auth/session.ts` + `.test.ts` | Nueva función `assertAuthenticated` (guard de "cualquier rol autenticado") |
+| `src/main/db/queries/roles.ts` + `.test.ts` | Nueva función `getRoleId` (mapea `Role` string → `roles.id` INTEGER) |
+| `src/main/db/queries/products.ts` + `.test.ts` | Nueva función `getProductById` (snapshot de venta) |
+| `src/shared/ipc-types.ts` | Agrega tipos `Customer`, `Shift`, `CashMovement`, `Sale*`, `CloseShiftResult`, `SalesApi`, `CashApi`, `CustomersApi`; extiende `PosApi` |
+| `src/main/preload.ts` | Expone `sales.*`, `cash.*`, `customers.*` vía `contextBridge` |
+| `src/main/index.ts` | Registra `registerSalesIpc`/`registerCashIpc`/`registerCustomersIpc` en `app.whenReady()` |
+| `src/renderer/App.tsx` | Agrega navegación a "Ventas"/"Caja" (visibles para AMBOS roles, a diferencia de Departamentos/Productos que siguen Admin-only) |
+
+## Verificación adversarial de los guards IPC (obligatoria, mismo criterio que PR2 follow-up)
+
+Se repitió explícitamente el experimento pedido por el usuario en el
+follow-up de PR2 ("deben poder fallar si alguien quita el guard, no deben
+ser tautológicos") para los 2 handlers nuevos con guard
+(`sales:create`, `cash:openShift`/`cash:cashOut`):
+
+1. **Primer intento con `sales:create` reveló un test tautológico real**:
+   la prueba original de "rechaza sin sesión" usaba una venta VACÍA
+   (`lines: []`) — al comentar `assertAuthenticated`, el test seguía
+   "pasando" (3/3 verde) porque `validateSaleLines` rechaza la venta vacía
+   por SU CUENTA, sin necesidad del guard. Se corrigió usando una venta
+   VÁLIDA (turno real, producto real, pago que sí suma el total) que de
+   otro modo tendría éxito — con esa corrección, remover el guard sí hizo
+   fallar el test (1/3 rojo), confirmando que la aserción depende
+   realmente de `assertAuthenticated`. Guard restaurado, 3/3 verde de
+   nuevo.
+2. **Mismo hallazgo en `cash.test.ts`, en 2 de los 3 handlers guardados**:
+   - `cash:openShift` con `role=null`: `getRoleId(db, null)` YA lanza por
+     su cuenta ("Rol desconocido: null") sin necesidad del guard —
+     tautológico con un `toThrow()` genérico. Se corrigió exigiendo el
+     mensaje EXACTO de `assertAuthenticated` (`/sesion activa/`), distinto
+     del mensaje de `getRoleId` — así, si se borra el guard, el handler
+     sigue lanzando pero con OTRO mensaje y la aserción específica falla.
+   - `cash:cashOut` con un `shiftId` inventado: la FK de
+     `cash_movements.shift_id` ya lanza por su cuenta sin el guard
+     (`enableForeignKeyConstraints: true`) — tautológico. Se corrigió
+     insertando un turno REAL directo por SQL (sin pasar por
+     `openShift`/sesión) con `concept`/`provider` válidos, de modo que sin
+     el guard la operación tendría éxito real (no lanzaría nada). Con esa
+     corrección, remover el guard hace fallar el test con
+     `AssertionError: expected [Function] to throw an error` (falla
+     limpia, no solo "mensaje distinto").
+   - Verificado con los 5 handlers guardados de `cash.ts` comentados
+     simultáneamente: las 5 pruebas de `cash.test.ts` seguían en verde
+     ANTES de corregir los 2 tests anteriores (confirma el problema);
+     después de corregirlos, remover los 3 guards hace fallar
+     específicamente esos 2 tests (los otros 3 — `getOpenShift` sin
+     guard, `openShift`/`closeShift` con sesión válida — no dependen del
+     guard y siguen en verde, como se espera).
+   - Guards restaurados en ambos archivos, 5/5 y 3/3 verde de nuevo
+     respectivamente; `git diff` de `sales.ts`/`cash.ts` quedó limpio tras
+     restaurar (sin cambios de producción, solo se corrigieron los
+     tests).
+
+Este hallazgo queda documentado explícitamente porque es exactamente el
+tipo de falso positivo que Strict TDD Mode busca prevenir (Banned
+Assertion Patterns: "would FAIL if the production code were wrong") — un
+`toThrow()` sin verificar la CAUSA del throw puede pasar por razones
+completamente ajenas al comportamiento que se pretende probar.
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| Base para 5.3/6.4 | `src/shared/sale-math.test.ts` | Unit (puro) | N/A (new) | ✅ Written | ✅ Passed | ✅ 11 casos (multiplicación, suma multi-línea, split-payment exacto/insuficiente, tolerancia de flotantes) | ➖ None needed |
+| Guard Fase 5/6 | `src/main/auth/session.test.ts` (existente) | Unit | ✅ 9/9 antes de agregar `assertAuthenticated` | ✅ Written (referenciaba función inexistente) | ✅ Passed | ✅ 3 casos (usuario, administrador, null) | ➖ None needed |
+| FK `shifts.opened_by_role_id` | `src/main/db/queries/roles.test.ts` (existente) | Integration (`:memory:` real) | ✅ 3/3 antes de agregar `getRoleId` | ✅ Written | ✅ Passed | ✅ 3 casos (usuario, administrador distinto, rol inexistente) | ➖ None needed |
+| Snapshot de venta | `src/main/db/queries/products.test.ts` (existente) | Integration (`:memory:` real) | ✅ 11/11 antes de agregar `getProductById` | ✅ Written | ✅ Passed | ✅ 3 casos (activo, soft-eliminado, id inexistente) | ➖ None needed |
+| Selector de crédito | `src/main/db/queries/customers.test.ts` | Integration (`:memory:` real) | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 casos (vacío, listar activos ordenados, excluir inactivos) | ➖ None needed |
+| 5.2/5.3 (validaciones puras) | `src/main/db/queries/sales.test.ts` | Unit (puro) | N/A (new) | ✅ Written | ✅ Passed | ✅ 9 casos (líneas vacías/cantidad 0/negativa/válida, pagos insuficientes/exactos/split/crédito sin-con cliente) | ➖ None needed |
+| 5.1/5.4/5.5 (`createSale`) | `src/main/db/queries/sales.test.ts` | Integration (`:memory:` real, sin mocks) | N/A (new) | ✅ Written | ✅ Passed | ✅ 10 casos (venta vacía, sin turno abierto, pagos no suman, crédito sin cliente, venta simple, multi-línea, split efectivo+tarjeta, crédito con cliente, rollback por producto inexistente, `getSaleById`) | ➖ None needed |
+| 6.1/6.4/6.5 (`openShift`/doble turno) | `src/main/db/queries/cash.test.ts` | Integration (`:memory:` real) | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 casos (abrir, rechazar segundo turno, reabrir tras cerrar) | ➖ None needed |
+| 6.2 (`cashIn`/`cashOut`) | `src/main/db/queries/cash.test.ts` | Unit (`validateCashOutInput` puro) + Integration | N/A (new) | ✅ Written | ✅ Passed | ✅ 8 casos (entrada válida/sin motivo, salida válida/sin motivo/sin proveedor/con ambos faltantes, listado en orden) | ➖ None needed |
+| 6.3/6.4 (`closeShift`/reconciliación) | `src/main/db/queries/cash.test.ts` | Unit (`computeExpectedCash` puro) + Integration | N/A (new) | ✅ Written | ✅ Passed | ✅ 5 casos (fórmula design.md $500+$200=$700, fórmula tasks.md 6.4 $700+$900-$300=$1,300, cierre sin diferencia, cierre con faltante -$50, expected recalculado desde ventas reales en efectivo) | ➖ None needed |
+| Guard `sales:create` | `src/main/ipc/sales.test.ts` | Integration (`IpcMain` falso) | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 casos (rechazado sin sesión — CORREGIDO tras hallazgo adversarial, permitido usuario, permitido administrador) | ➖ None needed |
+| Guard `cash:*` | `src/main/ipc/cash.test.ts` | Integration (`IpcMain` falso) | N/A (new) | ✅ Written | ✅ Passed | ✅ 5 casos (openShift sin sesión — CORREGIDO, openShift con sesión, getOpenShift sin guard, cashOut sin sesión — CORREGIDO, closeShift end-to-end) | ➖ None needed |
+| Wiring `customers:list` | `src/main/ipc/customers.test.ts` | Integration (`IpcMain` falso) | N/A (new) | ✅ Written | ✅ Passed | ➖ Single (un solo canal, sin guard, sin variantes de comportamiento que triangular) | ➖ None needed |
+| Escáner USB-HID | `src/renderer/screens/barcode-scanner.test.ts` | Unit (puro) | N/A (new) | ✅ Written | ✅ Passed | ✅ 6 casos (gaps consistentes <50ms, gap >=50ms, una sola tecla, buffer vacío, join de buffer, buffer vacío a string) | ➖ None needed |
+
+### Test Summary
+
+- **Total tests written (PR3)**: 76 (11 sale-math + 3 session + 3 roles + 3 products + 3 customers + 19 sales + 19 cash + 3 ipc/sales + 5 ipc/cash + 1 ipc/customers + 6 barcode-scanner)
+- **Total tests passing (PR3)**: 76/76
+- **Total tests passing (proyecto completo, PR1+PR2+PR3)**: 135/135 (`npx vitest run`, 19 archivos)
+- **Layers used**: Unit (sale-math, session, validateSaleLines/validateSalePayments, validateCashOutInput, computeExpectedCash, barcode-scanner — todas puras), Integration (sales/cash/customers/roles/products contra `node:sqlite` real, sin mocks; ipc/sales, ipc/cash, ipc/customers con `IpcMain` falso)
+- **Approval tests** (safety net antes de modificar archivos existentes): 4 — `session.test.ts` (9/9), `roles.test.ts` (3/3), `products.test.ts` (11/11), `cash.test.ts` completo (5/5) reverificado tras cada corrección adversarial
+- **Pure functions created**: `computeLineTotal`, `computeSaleTotal`, `sumPaymentAmounts`, `paymentsMatchTotal`, `assertAuthenticated`, `validateSaleLines`, `validateSalePayments`, `validateCashOutInput`, `computeExpectedCash`, `isBarcodeScan`, `bufferToBarcode` (11)
+- **Mocks usados**: 0 mocks de librerías/módulos externos. Único "doble de prueba": `IpcMain` falso en `ipc/*.test.ts` (mismo patrón que PR2, implementa solo `.handle`)
+- **Hallazgos adversariales corregidos**: 3 tests tautológicos detectados y corregidos (ver sección dedicada arriba) — 1 en `ipc/sales.test.ts`, 2 en `ipc/cash.test.ts`
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run    → 19 files, 135/135 tests passed
+npm run typecheck  → tsc --noEmit limpio (node + web)
+npm run build      → typecheck + electron-vite build OK (renderer bundle 671KB)
+npm run dev        → main+preload build OK, renderer sirve en localhost:5173,
+                     proceso Electron arranca (unicos mensajes en stderr:
+                     "Network service crashed"/"GPU process exited", mismo
+                     patron de sandbox ya documentado en PR1/PR2, no son
+                     errores de la aplicacion)
+```
+
+## Pendiente para PR4 (Fases 7-9, NO implementado en este PR)
+
+- **Fase 7 — Créditos de Clientes**: `credit:grant` (crear cliente si es
+  nuevo, insertar `customer_credits` — el diagrama de secuencia de
+  design.md muestra esto como un `invoke` SEPARADO después de
+  `sales:create`, no integrado en él), `credit:pay` (con clamp/rechazo si
+  excede el saldo), `credit:balance`, y la UI real de "crear cliente nuevo"
+  que el selector simplificado de este PR (`customers:list`, solo lectura)
+  no cubre. El picker de `SplitPaymentModal.tsx` deberá actualizarse para
+  ofrecer "crear cliente nuevo" inline una vez exista `credit:grant`.
+- **Fase 8 — Corte del Día**: `reports:dailyCut` (9 secciones por
+  `shift_id`), incluyendo la advertencia de "productos sin costo" en
+  Ganancia del Día y el literal "NO HUBO PAGOS" cuando no hay pagos de
+  crédito. Las queries de agregación de `cash.ts` (`getShiftCashSummary`,
+  no exportada) ya cubren 3 de las 9 secciones (entradas, salidas, ventas en
+  efectivo) y pueden reusarse o servir de referencia de patrón.
+- **Fase 9 — Impresión de Tickets**: `printing/ticket-template.ts` +
+  `printing/print.ts` + IPC `print:sale`/`print:dailyCut`. La tarea 5.10 de
+  este PR (wire sale-close → impresión) queda pendiente hasta que esto
+  exista — `Ventas.tsx` ya tiene el punto de integración natural
+  (`handleConfirmPayment`, justo después de `setLastSale(sale)`).
+- Ningún archivo de `src/main/printing/` tiene contenido real todavía —
+  sigue solo con `.gitkeep`.
+- La tabla `customers` sigue vacía hasta que Fase 7 implemente
+  `credit:grant` o alguien inserte clientes manualmente — ver "Limitaciones
+  documentadas" arriba.
+
+## Status (PR3)
+
+17/18 tasks (Fase 5: 9/10, Fase 6: 8/8) completas. 45/46 tasks totales
+(Fase 1-6) del cambio `pos-inicial`. Listo para `sdd-verify` de este work
+unit, o para continuar directo con PR4 (Fases 7-9, Créditos + Corte del Día
++ Impresión) según la estrategia de entrega del usuario.
