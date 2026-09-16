@@ -78,7 +78,7 @@ Chain strategy: pending
 - [x] 5.7 Renderer: barcode buffer listener (`keydown` gap <50ms + Enter heuristic)
 - [x] 5.8 Renderer: "producto no encontrado" toast on unknown barcode
 - [x] 5.9 Renderer: split-payment modal (efectivo/tarjeta/credito) with customer picker for credito — selector simplificado (solo clientes ya capturados, ver apply-progress.md "Limitaciones")
-- [ ] 5.10 Wire sale-close success to ticket printing IPC (Phase 9) — diferido a PR4 (Fase 9 no implementada en este PR)
+- [x] 5.10 Wire sale-close success to ticket printing IPC (Phase 9) — completado en PR4 (`Ventas.tsx`, `printSaleTicket`), diferido desde PR3 por dependencia de Fase 9
 
 ## Phase 6: Caja
 
@@ -93,32 +93,32 @@ Chain strategy: pending
 
 ## Phase 7: Créditos de Clientes
 
-- [ ] 7.1 IPC `credit:grant` — create customer if new, insert `customer_credits`
-- [ ] 7.2 IPC `credit:pay` — insert `credit_payments`, clamp/reject if amount > balance
-- [ ] 7.3 IPC `credit:balance` — `SUM(customer_credits) - SUM(credit_payments)`
-- [ ] 7.4 RED: `node:test` — overpay clamped/rejected, partial payment reduces balance correctly
-- [ ] 7.5 GREEN: implement 7.1-7.3 to pass 7.4
-- [ ] 7.6 Renderer: customer picker/creator inside split-payment modal (5.9)
-- [ ] 7.7 Renderer: Créditos screen — list balances, register payment
+- [x] 7.1 IPC `credit:grant` — create customer if new, insert `customer_credits`
+- [x] 7.2 IPC `credit:pay` — insert `credit_payments`, clamp/reject if amount > balance (ver apply-progress.md: decision = rechazar, no limitar)
+- [x] 7.3 IPC `credit:balance` — `SUM(customer_credits) - SUM(credit_payments)`
+- [x] 7.4 RED: `vitest` — overpay rechazado, partial payment reduces balance correctly (ver apply-progress.md Deviations, mismo criterio de runner que PR1-3)
+- [x] 7.5 GREEN: implement 7.1-7.3 to pass 7.4
+- [x] 7.6 Renderer: customer picker/creator inside split-payment modal (5.9)
+- [x] 7.7 Renderer: Créditos screen — list balances, register payment
 
 ## Phase 8: Corte del Día
 
-- [ ] 8.1 IPC `reports:dailyCut` — 9 section queries per `shift_id` (per design.md table)
-- [ ] 8.2 Ganancia del día: missing-cost=0 + count-of-uncosted-products warning
-- [ ] 8.3 "NO HUBO PAGOS" literal string when no credit payments that shift
-- [ ] 8.4 RED: `node:test` — all 9 formulas incl. cash-reconciliation cross-check, ganancia-with-missing-cost
-- [ ] 8.5 GREEN: implement 8.1-8.3 to pass 8.4
-- [ ] 8.6 Renderer: Corte del Día screen — fixed 9-section order, warning banner
-- [ ] 8.7 Renderer: open-shift preview mode (SHOULD, non-blocking)
+- [x] 8.1 IPC `reports:dailyCut` — 9 section queries per `shift_id` (per design.md table; ver apply-progress.md "Fase 8" para 2 deviations deliberadas vs. design.md, siguiendo el texto literal de daily-report/spec.md)
+- [x] 8.2 Ganancia del día: missing-cost=0 + count-of-uncosted-products warning
+- [x] 8.3 "NO HUBO PAGOS" literal string when no credit payments that shift
+- [x] 8.4 RED: `vitest` — all 9 formulas incl. cash-reconciliation cross-check, ganancia-with-missing-cost (ver apply-progress.md Deviations, mismo criterio de runner que PR1-3)
+- [x] 8.5 GREEN: implement 8.1-8.3 to pass 8.4
+- [x] 8.6 Renderer: Corte del Día screen — fixed 9-section order, warning banner
+- [x] 8.7 Renderer: open-shift preview mode (SHOULD, non-blocking)
 
 ## Phase 9: Impresión de Tickets
 
-- [ ] 9.1 `src/main/printing/ticket-template.ts` — sale-ticket HTML builder
-- [ ] 9.2 Extend `ticket-template.ts` — Corte del Día HTML (9 sections)
-- [ ] 9.3 CSS `@page { size: 80mm auto; margin:0 }`, monospace body, no clipped fields
-- [ ] 9.4 `src/main/printing/print.ts` — hidden `BrowserWindow` + `webContents.print()`
-- [ ] 9.5 IPC `print:sale`/`print:dailyCut`
-- [ ] 9.6 Error path: printer unavailable — surface error, allow retry without losing saved sale/report data
+- [x] 9.1 `src/main/printing/ticket-template.ts` — sale-ticket HTML builder
+- [x] 9.2 Extend `ticket-template.ts` — Corte del Día HTML (9 sections)
+- [x] 9.3 CSS `@page { size: 80mm auto; margin:0 }`, monospace body, no clipped fields
+- [x] 9.4 `src/main/printing/print.ts` — hidden `BrowserWindow` + `webContents.print()` (sin test automatizado dedicado, ver apply-progress.md "Fase 9" — mismo precedente que preload.ts/index.ts en PR1-3)
+- [x] 9.5 IPC `print:sale`/`print:dailyCut`
+- [x] 9.6 Error path: printer unavailable — surface error, allow retry without losing saved sale/report data
 
 ## Phase 10: Empaquetado y CI
 

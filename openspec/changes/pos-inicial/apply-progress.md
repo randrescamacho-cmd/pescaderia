@@ -1,13 +1,15 @@
 # Apply Progress: pos-inicial
 
-## Estado global: 45/46 tareas de Fase 1-6 completas (5/5 + 8/8 + 8/8 + 8/8 + 9/10 + 8/8)
+## Estado global: 67/67 tareas de Fase 1-9 completas (5/5 + 8/8 + 8/8 + 8/8 + 10/10 + 8/8 + 7/7 + 7/7 + 6/6)
 
 - PR1 (Fases 1-2, Setup + BD/Migraciones): completo, verificado.
 - PR2 (Fases 3-4, Auth PIN + Catálogo): completo — ver sección "PR2" abajo.
-- PR3 (Fases 5-6, Ventas + Caja): completo (9/10 + 8/8; tarea 5.10 diferida a
-  PR4 por depender de Fase 9/Impresión) — ver sección "PR3" abajo.
-- PR4 (Fases 7-9, Créditos + Corte del Día + Impresión): pendiente, siguiente
-  en el plan de 5 PRs.
+- PR3 (Fases 5-6, Ventas + Caja): completo (5.10 se cerró en PR4 por
+  dependencia declarada de Fase 9) — ver sección "PR3" abajo.
+- PR4 (Fases 7-9, Créditos + Corte del Día + Impresión): completo — ver
+  sección "PR4" abajo.
+- PR5 (Fases 10-11, Empaquetado/CI + Validación en sitio): pendiente, único
+  PR restante del plan de 5.
 
 ---
 
@@ -802,3 +804,199 @@ Fix completo. 141/141 tests pasan (135 previos + 6 nuevos), build y
 typecheck limpios. El hallazgo CRITICAL de `verify-report-pr3.md` queda
 resuelto. Listo para iniciar PR4 (Fases 7-9) sobre una base de matemática
 de dinero corregida.
+
+---
+
+# PR4 (Fases 7-9): Créditos de Clientes + Corte del Día + Impresión
+
+## Scope de este PR
+
+Fase 7 (Créditos de Clientes), Fase 8 (Corte del Día) y Fase 9 (Impresión de
+Tickets) completas, por plan de 5 PRs encadenados (`tasks.md` → Review
+Workload Forecast → Suggested Work Units → Unit 4). Fases 10-11
+(empaquetado/CI + validación en sitio) quedan explícitamente fuera — ver
+"Pendiente para PR5" abajo. También se cerró la tarea 5.10, diferida desde
+PR3 por depender de esta Fase 9.
+
+## Estado: 20/20 tareas de Fase 7+8+9 completas (7/7 + 7/7 + 6/6), + 5.10 cerrada
+
+Las 3 fases se completaron enteras con TDD completo — no fue necesario
+recortar alcance (la instrucción de priorizar Fase 7+8 sobre Fase 9 en caso
+de que el trabajo no cupiera en una sola pasada no se activó).
+
+## Decisiones tomadas
+
+| Decisión | Elegido | Por qué |
+|---|---|---|
+| Cómo resolver el "backfill" de PR3 (venta a crédito no reflejada en `customer_credits`) | Dos invokes separados desde `Ventas.tsx` DESPUÉS de `sales:create`: por cada `sale_payments` con `method='credito'`, se llama `credit:grant({customerId, saleId: sale.id, shiftId, amount})` | Sigue literalmente el diagrama de secuencia "Crédito de cliente" de `design.md` (`credit:grant` como `invoke` SEPARADO). `sale_payments.customer_id` es una FK real que exige que el cliente YA EXISTA al momento de insertar la venta — por eso el cliente se resuelve ANTES de `sales:create` (ver siguiente decisión), y el saldo de crédito se escribe DESPUÉS, una vez que la venta (y por tanto el `sale_id`) ya existe. |
+| "Crear cliente nuevo" durante una venta a crédito | Nuevo IPC `customers:create` (independiente de `credit:grant`), invocado desde `SplitPaymentModal.tsx`/`Ventas.tsx` ANTES de `sales:create` cuando el cajero elige "+ Nuevo cliente" y captura el nombre | Necesario por la misma restricción de FK: si se intentara resolver "cliente nuevo" DENTRO de `credit:grant` (que se llama después de la venta), `sale_payments.customer_id` se quedaría en `NULL` para esa porción y el saldo de crédito no podría asociarse correctamente a la fila de pago de la venta. Separar "crear/resolver cliente" de "otorgar crédito" en dos IPCs distintos deja cada uno con una sola responsabilidad y evita tocar `sales.ts`/`sales:create` (ya verificado en PR3) para nada de esta lógica nueva. |
+| `credit:grant` también acepta `customerName` (no solo `customerId`) | `grantCredit` resuelve el cliente por id O por nombre (reusa uno existente con nombre exacto, o lo crea) | Satisface literalmente tasks.md 7.1 ("create customer if new") y customer-credit/spec.md Scenario "Registrar cliente nuevo al otorgar crédito" para el caso en que `credit:grant` se invoque de forma standalone (sin pasar por `customers:create` primero) — p. ej. si en el futuro se agrega un flujo de "otorgar crédito sin venta" desde la pantalla de Créditos. En el flujo de venta real (`Ventas.tsx`) el cliente YA llega resuelto por `customerId` vía `customers:create`, así que esta rama de `grantCredit` no se ejercita desde la UI de este PR, pero SÍ está cubierta por tests directos de `credits.test.ts`. |
+| Pago de crédito mayor al saldo: **rechazar**, no limitar | `payCredit` lanza un error si `amount > balance` (con margen de `0.005` para ruido de flotantes, mismo criterio que `AMOUNT_EPSILON`) | `customer-credit/spec.md` permite CUALQUIERA de las dos ("MUST rechazar el pago O limitarlo"). Se eligió rechazar porque silenciosamente reducir el monto que el cajero tecleó podría registrar un pago distinto al efectivo real que el cliente entregó, sin que nadie lo note — mismo principio de "no silenciar montos de dinero real" que ya motivó el fix de `AMOUNT_EPSILON` en PR3 (commit `64ceb2b`). El error incluye el saldo pendiente exacto para que el cajero pueda corregir el monto. |
+| Redondeo de saldos de crédito | `getCustomerBalance`/`grantCredit`/`payCredit` reusan `roundToCents` (exportado de `sale-math.ts` en este PR, antes privado) en vez de reinventar el redondeo | Instrucción explícita de la sesión ("reutiliza `src/shared/sale-math.ts`, no reinventes la comparación de montos"). Sin este redondeo, sumar/restar muchos pagos parciales de crédito a lo largo de varios turnos podría acumular residuo de punto flotante en el saldo mostrado al cajero — mismo fenómeno que ya motivó el fix de PR3. |
+| "Ventas de contado" (sección 2 del Corte del Día) EXCLUYE `credito` | `sumSalePaymentsForShift(db, shiftId, ['efectivo','tarjeta'])` | **Deviation deliberada vs. `design.md`** (que sugiere `SUM(sale_payments.amount)` "todas las formas de pago", lo cual incluiría crédito). `daily-report/spec.md` (fuente de verdad RFC2119) dice literalmente "efectivo + tarjeta = total" para esta sección, contrastándola explícitamente con la sección 8 ("Pagos de créditos") — crédito otorgado no es dinero de contado recibido. Se siguió el texto literal del spec en vez del hint SQL de design.md. |
+| "Ventas totales" (sección 6) = Ventas de contado + Pagos de créditos | `computeTotalSales(cashSalesTotal, creditPaymentsTotal)` | **Deviation deliberada vs. `design.md`** (que sugiere `SUM(sales.total) WHERE status='completed'`, es decir el valor de TODO lo vendido, incluyendo crédito recién otorgado como si ya fuera dinero recibido). `daily-report/spec.md` dice literalmente "ventas de contado + pagos de clientes (créditos) = total" — esto refleja la contabilidad real de una tienda chica: crédito otorgado hoy es una CUENTA POR COBRAR, no una venta "totalizada" hasta que se cobra (ese día o días después). Se verificó que esta formula es INDEPENDIENTE de "Ganancia del día" (que sí usa `sale_lines` de TODAS las ventas del turno sin importar método de pago, vía `computeProfit`) — no hay conflicto entre ambas secciones. Documentado también como comentario inline en `reports.ts`. |
+| "Entradas efectivo" (sección 1) = inicio de caja + entradas de cambio | `roundToCents(shift.openingCash + cashSummary.cashInTotal)` | Confirmado cruzando `daily-report/spec.md` (formula textual "inicio de caja + entradas de cambio") contra el Scenario "Dinero en caja consistente con conciliación de caja" (`$700 + $900 - $300 = $1,300`) y el test YA EXISTENTE de PR3 (`cash.test.ts`, tasks.md 6.4, mismos números exactos) — el `$700` de ese ejemplo es la SUMA de `openingCash` + `cashInTotal`, no solo las entradas de cambio aisladas. Esto reconcilia por completo la formula del spec con `computeExpectedCash` (ya verificado en PR3): "Dinero en caja" (sección 4) es literalmente `computeExpectedCash({openingCash, cashInTotal, cashSalesTotal: efectivo-only, cashOutTotal})`, sin necesidad de ninguna formula nueva. |
+| Conteo de "productos sin costo" en Ganancia del día | Cuenta productos **distintos** (`Set<productId>`), no líneas de venta | tasks.md 8.2 pide "count-of-uncosted-products" (productos, no líneas). Vender el mismo producto sin costo capturado 3 veces en el mismo turno debe advertir "1 producto sin costo", no "3" — de lo contrario la advertencia exageraría el problema real (un solo producto mal capturado en el catálogo). |
+| Exportar `getShiftCashSummary`/agregar `getShiftById` en `cash.ts` (antes privado / no existía) | Cambios additivos puros en un archivo ya verificado (PR3) — safety net corrido antes y después de cada cambio, sin tocar ninguna función existente | `reports.ts` necesita EXACTAMENTE los mismos 3 agregados de caja que ya usa `closeShift` (evita reescribir las mismas 3 queries SQL) y necesita poder leer un turno por id SIN filtrar por `status='open'` (a diferencia de `getOpenShift`) para poder generar el Corte del Día tanto de un turno cerrado como de una vista previa de un turno abierto (tasks.md 8.7). |
+| Enriquecer una venta con nombres de producto/cliente para el ticket | Nueva función `getSaleTicketData(db, saleId)` en `sales.ts` (JOIN de solo lectura, no toca `createSale`/`getSaleById`) | `Sale`/`SaleLineResult`/`SalePaymentResult` (PR3) solo guardan `productId`/`customerId` — un ticket impreso necesita el NOMBRE, no el id. Se decidió NO modificar el contrato `Sale` existente (usado por `sales:create`, ya verificado) para no arriesgar romper nada de PR3; en cambio se agregó una función de lectura nueva, exclusiva para impresión. |
+| `printing/print.ts` sin test automatizado dedicado | Documentado explícitamente como excepción, NO oculto | Requiere una `BrowserWindow` real de Electron (proceso GUI) — mismo precedente ya establecido y justificado en PR1-3 para `src/main/preload.ts`/`src/main/index.ts` ("wiring de infraestructura sin capa de test", no hay librería de testing de Electron en el proyecto). La lógica SÍ testeable (qué HTML se construye) vive en `ticket-template.ts` (TDD completo, 14 tests) y el WIRING de `ipc/print.ts` SÍ se prueba inyectando `printHtml` como parámetro sustituible (mismo patrón de inyección de dependencias que el `IpcMain` falso de todo el proyecto) — solo la llamada real a `webContents.print()` queda sin cubrir. |
+| Cancelar impresión vs. fallo real de impresión | `printHtml` resuelve `{printed:false}` si el usuario cancela el diálogo nativo (`errorType==='cancelled'`), pero RECHAZA la promesa (error real) en cualquier otro caso (p. ej. impresora desconectada) | `ticket-printing/spec.md` distingue expresamente "Cancelar impresión" (la venta permanece guardada, no es un error) de "Impresora no disponible" (SHOULD informar el error, MUST permitir reintentar). Tratar ambos casos igual habría hecho que una cancelación normal se viera como un fallo en la UI. |
+| Créditos screen (7.7): solo lista saldos + registra pagos, SIN "otorgar crédito manual sin venta" | Alcance literal de tasks.md 7.7 ("list balances, register payment") — no se agregó un formulario de "otorgar crédito nuevo" independiente de una venta | Ninguna tarea de Fase 7 lo pide explícitamente; `credit:grant` YA soporta ese caso (acepta `customerName`, `saleId: null`) si se decide agregar esa UI en un PR futuro, pero agregarla ahora sin que se pidiera habría sido diseño no solicitado (freelancing). |
+
+## Deviations from Design
+
+1. **"Ventas de contado" y "Ventas totales"** (Corte del Día, secciones 2 y
+   6) siguen el texto LITERAL de `daily-report/spec.md` en vez de las
+   fórmulas SQL sugeridas por `design.md` — ver tabla de Decisiones arriba
+   para el detalle completo de por qué difieren y por qué no hay conflicto
+   con "Ganancia del día".
+2. **Estructura de archivos**: `db/queries/credits.ts` y `db/queries/
+   reports.ts` son módulos nuevos que no aparecen en el árbol de
+   `design.md` "Estructura de Carpetas" — mismo criterio ya usado en PR2/PR3
+   para `shared/ipc-types.ts`/`shared/sale-math.ts` (un dominio nuevo =
+   un archivo nuevo dentro de `db/queries/`, consistente con el patrón
+   existente de `cash.ts`/`sales.ts`/`products.ts`).
+3. Deviation de test runner ya documentada en PR1-3 se repite aquí:
+   `tasks.md` 7.4/8.4 dicen `node:test`; se usó `vitest` (`openspec/
+   config.yaml` fija `npx vitest run`).
+
+Sin deviations de esquema: las tablas `customers`, `customer_credits` y
+`credit_payments` ya existían completas desde PR1 (anticipando exactamente
+esta Fase 7) — no fue necesaria ninguna migración nueva en este PR.
+
+## Archivos creados
+
+| Archivo | Qué hace |
+|---|---|
+| `src/main/db/queries/credits.ts` + `.test.ts` | `grantCredit` (resuelve cliente por id o nombre, crea si es nuevo), `payCredit` (rechaza si excede saldo), `getCustomerBalance`, `listCustomerBalances`, `listCreditPaymentsForShift`, `sumCreditPaymentsForShift` |
+| `src/main/db/queries/reports.ts` + `.test.ts` | `getDailyCutReport` (las 9 secciones), `computeProfit` (puro), `computeTotalSales` (puro) |
+| `src/main/ipc/credit.ts` + `.test.ts` | Wiring `credit:grant/pay` (guard `assertAuthenticated`) y `credit:balance/listBalances` (sin guard, lectura) |
+| `src/main/ipc/reports.ts` + `.test.ts` | Wiring `reports:dailyCut` (guard `assertAuthenticated`) |
+| `src/main/ipc/print.ts` + `.test.ts` | Wiring `print:sale/dailyCut`, con `printFn` inyectable para test sin `BrowserWindow` real |
+| `src/main/printing/ticket-template.ts` + `.test.ts` | `buildSaleTicketHtml`, `buildDailyCutTicketHtml` (HTML puro, CSS 80mm, escapado de HTML) |
+| `src/main/printing/print.ts` | `printHtml` — `BrowserWindow` oculta + `webContents.print()` (sin test dedicado, ver Decisiones) |
+| `src/renderer/screens/Creditos.tsx` | Pantalla de Créditos: lista de saldos + formulario de registro de pago |
+| `src/renderer/screens/CorteDelDia.tsx` | Pantalla de Corte del Día: 9 secciones en orden fijo, banner de vista previa, advertencia de productos sin costo, botón de impresión |
+
+## Archivos modificados
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/shared/sale-math.ts` + `.test.ts` | `roundToCents` ahora exportado (antes privado) — reutilizado por `credits.ts`/`reports.ts` |
+| `src/main/db/queries/cash.ts` + `.test.ts` | `getShiftCashSummary` ahora exportado (antes privado); nueva función `getShiftById` (busca un turno por id sin filtrar por status) |
+| `src/main/db/queries/customers.ts` + `.test.ts` | Nuevas funciones `createCustomer`, `getCustomerById`, `findCustomerByName` |
+| `src/main/db/queries/sales.ts` + `.test.ts` | Nueva función `getSaleTicketData` (enriquece una venta con nombres de producto/cliente para el ticket) |
+| `src/main/ipc/customers.ts` + `.test.ts` | Nuevo handler `customers:create` |
+| `src/shared/ipc-types.ts` | Nuevos tipos: `GrantCreditInput/Result`, `PayCreditInput/Result`, `CustomerBalance`, `CreditPaymentRecord`, `CreditApi`, `DailyCutReport`, `DepartmentSalesLine`, `ReportsApi`, `SaleTicketData/Line/Payment`, `PrintResult`, `PrintApi`; `PosApi` extendido con `credit`/`reports`/`print`; `CustomersApi` extendido con `create` |
+| `src/main/preload.ts` | Expone `customers.create`, `credit.*`, `reports.dailyCut`, `print.sale/dailyCut` |
+| `src/main/index.ts` | Registra `registerCreditIpc`/`registerReportsIpc`/`registerPrintIpc` |
+| `src/renderer/components/SplitPaymentModal.tsx` | Nuevo tipo `PaymentDraft` (reemplaza `SalePaymentInput` como salida del modal); selector de cliente ahora incluye "+ Nuevo cliente" con input de nombre para la porción `credito` |
+| `src/renderer/screens/Ventas.tsx` | `resolvePayments` (resuelve clientes nuevos vía `customers:create` antes de `sales:create`); tras la venta, llama `credit:grant` por cada porción `credito` (cierra el backfill de PR3); imprime el ticket automáticamente (5.10) con botón "Reimprimir ticket" y aviso de error si falla |
+| `src/renderer/App.tsx` | Agrega navegación a "Creditos" y "Corte del Dia" |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| Base (redondeo compartido) | `src/shared/sale-math.test.ts` | Unit (puro) | ✅ 16/16 antes de exportar `roundToCents` | ✅ Written | ✅ Passed | ✅ 3 casos (abajo, arriba, sin cambio) | ➖ None needed |
+| Base (agregados de caja para reportes) | `src/main/db/queries/cash.test.ts` | Integration (`:memory:` real) | ✅ 19/19 antes de exportar `getShiftCashSummary` | ✅ Written | ✅ Passed | ✅ 2 casos (ceros, agregado real) | ➖ None needed |
+| Base (leer turno por id sin filtrar status) | `src/main/db/queries/cash.test.ts` | Integration (`:memory:` real) | ✅ 21/21 antes de agregar `getShiftById` | ✅ Written | ✅ Passed | ✅ 3 casos (abierto, cerrado, inexistente) | ➖ None needed |
+| 7.1/7.6 (`createCustomer`/`getCustomerById`/`findCustomerByName`) | `src/main/db/queries/customers.test.ts` | Integration (`:memory:` real) | ✅ 3/3 antes de agregar | ✅ Written | ✅ Passed | ✅ 8 casos (crear x3, buscar por id x3, buscar por nombre x2) | ➖ None needed |
+| 7.6 (`customers:create` wiring) | `src/main/ipc/customers.test.ts` | Integration (`IpcMain` falso) | ✅ 1/1 antes de agregar | ✅ Written | ✅ Passed | ➖ Single (un solo canal nuevo) | ➖ None needed |
+| 7.1/7.2/7.3/7.4 (`grantCredit`/`payCredit`/`getCustomerBalance`/`listCustomerBalances`/`listCreditPaymentsForShift`) | `src/main/db/queries/credits.test.ts` | Integration (`:memory:` real, sin mocks) | N/A (new) | ✅ Written | ✅ Passed | ✅ 17 casos (grant x7 incl. cliente nuevo/reuso/acumulación/validaciones, balance x2, pay x5 incl. rechazo por exceso/pago exacto/sin deuda, listBalances x1, listPayments x2) | ➖ None needed |
+| 7.1/7.2 (guard `credit:grant`/`credit:pay`, verificación adversarial) | `src/main/ipc/credit.test.ts` | Integration (`IpcMain` falso) | N/A (new) | ✅ Written | ✅ Passed | ✅ 6 casos (grant ok, grant rechazado sin sesión, pay ok, pay rechazado sin sesión, balance sin guard, listBalances sin guard) — **guard comentado explícitamente y confirmado que 2/6 pasan a rojo (los 2 dependientes del guard), luego restaurado a 6/6** | ➖ None needed |
+| 8.1/8.2 (`computeProfit`, `computeTotalSales`, `getDailyCutReport`) | `src/main/db/queries/reports.test.ts` | Unit (puro, 2 funciones) + Integration (`:memory:` real) | N/A (new) | ✅ Written | ✅ Passed | ✅ 13 casos (profit x5, totalSales x2, reporte completo de 9 secciones x1, "NO HUBO PAGOS" x1, turno cerrado x1, ejemplo tasks.md 6.4 reutilizado x1, turno inexistente x1, departamentos sin ventas omitidos x1) | ➖ None needed |
+| 8.1 (guard `reports:dailyCut`, verificación adversarial) | `src/main/ipc/reports.test.ts` | Integration (`IpcMain` falso) | N/A (new) | ✅ Written | ✅ Passed | ➖ Single (un solo canal con guard) — **guard comentado explícitamente y confirmado que 1/2 pasa a rojo, luego restaurado a 2/2** | ➖ None needed |
+| Fase 9 (enriquecer venta con nombres) | `src/main/db/queries/sales.test.ts` | Integration (`:memory:` real) | ✅ 20/20 antes de agregar `getSaleTicketData` | ✅ Written | ✅ Passed | ✅ 2 casos (venta con líneas+pagos reales, venta inexistente) | ➖ None needed |
+| 9.1/9.2/9.3 (`buildSaleTicketHtml`/`buildDailyCutTicketHtml`) | `src/main/printing/ticket-template.test.ts` | Unit (puro, HTML string) | N/A (new) | ✅ Written | ✅ Passed | ✅ 14 casos (CSS 80mm x2, contenido de líneas/pagos x3, escapado HTML x1, orden de las 9 secciones x1, advertencia de sin-costo x2, "NO HUBO PAGOS" x1, listados x2, banner de vista previa x2) | ➖ None needed |
+| 9.4/9.5 (`registerPrintIpc`, wiring con `printFn` inyectable) | `src/main/ipc/print.test.ts` | Integration (`IpcMain` falso + `printFn` falso) | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 casos (print:sale construye HTML correcto, print:dailyCut construye HTML correcto, fallo de impresión se propaga como rechazo) | ➖ None needed |
+
+### Test Summary
+
+- **Total tests nuevos (PR4)**: 74 (3 roundToCents + 2 getShiftCashSummary +
+  3 getShiftById + 8 customers.ts + 1 customers:create + 17 credits.ts +
+  6 ipc/credit + 13 reports.ts + 2 ipc/reports + 2 getSaleTicketData +
+  14 ticket-template + 3 ipc/print)
+- **Total tests pasando (PR4)**: 74/74
+- **Total tests pasando (proyecto completo, PR1+PR2+PR3+PR4)**: 215/215
+  (`npx vitest run`, 25 archivos)
+- **Layers used**: Unit (roundToCents, computeProfit, computeTotalSales,
+  ticket-template — todas puras), Integration (credits/reports/customers/
+  cash/sales contra `node:sqlite` real, sin mocks; ipc/credit, ipc/reports,
+  ipc/print, ipc/customers con `IpcMain` falso)
+- **Approval tests** (safety net antes de modificar archivos existentes): 5
+  — `sale-math.test.ts` (16/16), `cash.test.ts` (19/19 y 21/21, dos cambios
+  distintos), `customers.test.ts` (3/3), `sales.test.ts` (20/20)
+- **Pure functions created**: `computeProfit`, `computeTotalSales`,
+  `escapeHtml`, `money`, `buildSaleTicketHtml`, `buildDailyCutTicketHtml` (6;
+  `roundToCents` ya existía, solo se exportó)
+- **Mocks usados**: 0 mocks de librerías externas. Dobles de prueba: `IpcMain`
+  falso (mismo patrón de todo el proyecto) y `printFn` falso (`vi.fn()`,
+  inyección de dependencia explícita en `registerPrintIpc`)
+- **Hallazgos adversariales verificados**: 2 (guard de `credit:grant`/
+  `credit:pay` en `ipc/credit.test.ts`, guard de `reports:dailyCut` en
+  `ipc/reports.test.ts`) — ambos confirmados: comentar el guard hizo fallar
+  EXACTAMENTE los tests que dependen de él (ni más ni menos), guard
+  restaurado y suite verde de nuevo en ambos casos.
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run    → 25 files, 215/215 tests passed (141 previos + 74 nuevos)
+npm run typecheck → tsc --noEmit limpio (node + web)
+npm run build     → typecheck + electron-vite build OK (renderer bundle 685.08KB)
+```
+
+## Limitaciones documentadas (alcance explícito de este PR)
+
+1. **Pantalla de Créditos (7.7) no incluye "otorgar crédito manual sin
+   venta"** — solo lista saldos y registra pagos, tal como pide tasks.md
+   literalmente. El backend (`credit:grant` con `customerName`, `saleId:
+   null`) ya lo soporta si se pide explícitamente en un PR futuro.
+2. **No hay pantalla de historial de turnos cerrados.** `CorteDelDia.tsx`
+   carga automáticamente el turno abierto actual (vista previa) y permite
+   consultar OTRO turno tecleando su id manualmente — no hay un listado
+   navegable de turnos pasados (misma limitación ya documentada en PR3,
+   sigue sin resolverse porque ninguna spec de este cambio la exige).
+3. **`printing/print.ts` sin test automatizado** (Electron `BrowserWindow`
+   real) — ver Decisiones arriba. Verificación manual pendiente para el
+   día D (tasks.md 11.2, Fase 11/PR5): imprimir un ticket real y confirmar
+   el layout de 80mm con nombres de producto reales.
+4. **`sales:create` no fue modificado** para escribir directamente en
+   `customer_credits` — el backfill se resuelve en el RENDERER (dos
+   invokes secuenciales: `sales:create` luego `credit:grant` por cada
+   porción `credito`), no en una única transacción atómica del main
+   process. Si el proceso renderer se cae ENTRE ambos invokes, la venta
+   quedaría guardada pero el crédito no otorgado — riesgo aceptado
+   explícitamente por ser una app de una sola terminal con un solo cajero a
+   la vez (sin concurrencia), y por no reabrir/tocar la transacción de
+   `sales:create` ya verificada en PR3. Si se quisiera cerrar esto por
+   completo, un PR futuro podría mover la escritura de `customer_credits`
+   DENTRO de la misma transacción de `createSale` — no se hizo aquí para
+   minimizar el riesgo sobre código ya verificado, según la instrucción
+   explícita de esta sesión de priorizar solidez sobre las fases nuevas.
+
+## Pendiente para PR5 (Fases 10-11, NO implementado en este PR)
+
+- **Fase 10 — Empaquetado y CI**: `preload.ts` ya expone toda la superficie
+  de API necesaria (auth, catalog, sales, cash, customers, credit, reports,
+  print) — falta el workflow de GitHub Actions (`build-mac.yml`), firma
+  ad-hoc, empaquetado `.dmg` y publicación a Releases, todo per `design.md`
+  "Pipeline CI/CD".
+- **Fase 11 — Validación en sitio**: confirmar modelo real de impresora +
+  versión de macOS, imprimir un ticket real de 80mm (usa las plantillas de
+  `ticket-template.ts` de este PR), probar el escáner USB-HID real, validar
+  el bypass de Gatekeeper, y correr el E2E manual completo (abrir turno →
+  venta con pago dividido, incluyendo una porción a crédito → cerrar turno →
+  imprimir corte). Ninguna de estas tareas es automatizable (dependen de
+  hardware físico real), tal como ya anticipaba `design.md` "Testing
+  Strategy".
+
+## Status (PR4)
+
+20/20 tasks (Fase 7: 7/7, Fase 8: 7/7, Fase 9: 6/6) completas, más el cierre
+de la tarea 5.10 diferida desde PR3. 67/67 tasks totales (Fase 1-9) del
+cambio `pos-inicial`. 215/215 tests pasan, build y typecheck limpios. Listo
+para `sdd-verify` de este work unit, o para continuar directo con PR5
+(Fases 10-11, último PR del plan) según la estrategia de entrega del
+usuario.

@@ -24,7 +24,8 @@ pr_plan:
     note: "5.10 (impresion de ticket) diferida a PR4 por dependencia de Fase 9, confirmado por verificacion"
   - id: PR4
     scope: "Creditos + Corte del Dia + Impresion (Fases 7-9)"
-    status: in_progress
+    status: done_pending_verify
+    note: "20/20 tasks (7/7+7/7+6/6) + cierre de 5.10 diferida desde PR3. 215/215 tests. Ver apply-progress.md seccion 'PR4'."
   - id: PR5
     scope: "Empaquetado/CI + Validacion en sitio (Fases 10-11)"
     status: pending
@@ -57,7 +58,7 @@ phases:
   apply:
     status: in_progress
     depends_on: [tasks]
-    current_pr: PR4
+    current_pr: PR5
     open_decisions:
       - "Boton de respaldo manual del .sqlite en panel Admin - el usuario lo esta pensando, NO implementar hasta que confirme"
   verify:
