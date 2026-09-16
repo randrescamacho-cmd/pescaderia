@@ -322,3 +322,130 @@ npm run dev       → main+preload build OK, renderer sirve en localhost:5173,
 (Fase 1-4) del cambio `pos-inicial`. Listo para `sdd-verify` de este work
 unit, o para continuar directo con PR3 (Fases 5-6) según la estrategia de
 entrega del usuario.
+
+---
+
+# PR2 follow-up: cierre de 2 hallazgos WARNING de verify-report-pr2.md
+
+## Scope de este follow-up
+
+NO es un PR nuevo del plan de 5 (Fases 5-11 no se tocaron). Cierra 2 de los 3
+hallazgos WARNING de una verificación independiente de PR2
+(`verify-report-pr2.md`, verdict PASS WITH WARNINGS, 0 CRITICAL):
+
+1. **WARNING 1**: solo `catalog:createDepartment` tenía un test de guard de
+   rol a nivel de wiring IPC end-to-end; los otros 5 canales mutantes de
+   catálogo (`updateDepartment`, `deleteDepartment`, `createProduct`,
+   `updateProduct`, `deleteProduct`) confiaban solo en lectura de código.
+2. **WARNING 2**: `Productos.tsx` no exponía una acción "Editar" — el
+   backend (`catalog:updateProduct`) ya existía y ya estaba probado a nivel
+   de query (`products.test.ts` > "reassigns a product to a different
+   department"), pero el escenario de spec "Reasignar producto a otro
+   departamento" (`catalog-management/spec.md`, Requirement "Single Fixed
+   Department per Product") no era ejecutable por un usuario real todavía.
+
+El WARNING 3 (housekeeping de `state.yaml`) se resolvió como parte de este
+mismo follow-up, actualizando `pr_plan[PR2].followup` y `phases.apply.current_pr`
+en `state.yaml`.
+
+## 1. Tests de guard IPC faltantes (5 nuevos, `src/main/ipc/catalog.test.ts`)
+
+Se agregaron los 5 tests siguiendo exactamente el mismo patrón del test
+existente (`rejects catalog:createDepartment when the active session role is
+usuario`): `IpcMain` falso + `createSessionStore` real + `login('usuario')` +
+`expect(() => handler(...)).toThrow()`.
+
+Para `updateProduct`/`deleteProduct` (necesitan un producto existente) se
+usó una segunda llamada al mismo `session` logueado como `administrador`
+para crear el producto primero, y luego `session.login('usuario')` (mismo
+`SessionStore`, mismos handlers ya registrados) para probar el rechazo — sin
+necesidad de dos registros de IPC.
+
+**Verificación adversarial explícita (pedida por el usuario: "deben poder
+fallar si alguien quita el guard, no deben ser tautológicos")**: se comentó
+temporalmente la línea `assertRole(session.getRole(), 'administrador')` en
+los 5 handlers correspondientes de `src/main/ipc/catalog.ts`, se corrió
+`npx vitest run src/main/ipc/catalog.test.ts` y se confirmó que los 5 tests
+nuevos fallaban (`AssertionError: expected [Function] to throw an error`)
+mientras los 3 tests preexistentes seguían pasando — esto prueba que cada
+test depende realmente de la línea `assertRole`, no de un efecto secundario
+(p. ej. un ID inexistente que ya lanzara por otra razón). Se restauró el
+guard inmediatamente después y se confirmó 8/8 verde de nuevo. `git diff` en
+`catalog.ts` quedó vacío tras la restauración (confirmado) — el archivo de
+producción no cambió, solo se agregaron tests.
+
+Los IDs usados son reales (departamento `1`, sembrado por la migración
+`3:seed_departments`; producto creado en el propio test) para que la
+operación SÍ tuviera éxito sin el guard — de lo contrario un ID inventado
+podría lanzar por una razón no relacionada (fila inexistente) y el test
+sería tautológico.
+
+## 2. Acción "Editar" en `Productos.tsx`
+
+Se reutilizó el mismo formulario de "Crear" (mismos inputs: nombre, precio,
+costo, departamento, código de barras) en vez de introducir un patrón nuevo,
+tal como pidió el usuario explícitamente ("no inventes un patrón nuevo").
+Diferencia deliberada con `Departamentos.tsx` (que usa `window.prompt` para
+un solo campo, nombre): `Productos.tsx` edita 5 campos, así que precargar el
+formulario existente es la opción correcta — un `window.prompt` por campo
+habría sido peor UX y no era lo que pedía el usuario.
+
+Cambios:
+- `editingId: number | null` (nuevo estado) distingue modo Crear (`null`) de
+  modo Editar (id del producto).
+- `toFormState(product)` convierte un `Product` (tipos numéricos/`null`) al
+  `ProductFormState` (todo `string`, igual que los inputs controlados).
+- `handleEdit(product)` precarga el formulario y fija `editingId`.
+- `handleSave()` (antes `handleCreate()`) llama `updateProduct(editingId,
+  ...)` si `editingId !== null`, si no `createProduct(...)` — mismo
+  `buildInput()` extraído para no duplicar el parseo de strings a los tipos
+  de `ProductInput`.
+- Botón "Cancelar" (solo visible en modo Editar) limpia el formulario sin
+  guardar. El texto del botón de submit cambia a "Guardar cambios" en modo
+  Editar.
+- `handleDelete` sale de modo Editar si el producto eliminado era el que se
+  estaba editando (evita enviar un `updateProduct` a un id ya borrado).
+
+No se agregó ningún test automatizado para este cambio de UI — sigue el
+mismo precedente ya documentado y justificado en PR1 y PR2 ("Testing scope
+decision" arriba): no hay `@testing-library/react` ni ninguna librería de
+component-testing en el proyecto (`vitest.config.ts` usa `environment:
+'node'`, `package.json` no tiene `jsdom` ni testing-library), `design.md`
+"Testing Strategy" no define una capa de component-testing, y agregar
+tooling nuevo solo para esta pantalla habría sido freelancing no solicitado.
+La lógica de negocio que respalda "Editar" (`updateProduct` en
+`db/queries/products.ts`, incluyendo la reasignación de departamento) ya
+tenía TDD completo desde PR2 (`products.test.ts`); este follow-up solo
+conecta la UI a código ya probado.
+
+## TDD Cycle Evidence (PR2 follow-up)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| Guard IPC: `updateDepartment`/`deleteDepartment`/`createProduct`/`updateProduct`/`deleteProduct` | `src/main/ipc/catalog.test.ts` | Integration (IpcMain falso, sin Electron real) | ✅ 54/54 antes de tocar el archivo | ✅ Escritos referenciando canales ya cableados (comportamiento correcto ya existía) | ✅ 8/8 en `catalog.test.ts` (3 preexistentes + 5 nuevos) | ✅ No aplica triangulación clásica (cada test cubre un canal distinto, no variantes del mismo comportamiento) — en su lugar se hizo verificación adversarial: guard comentado → 5/5 nuevos en RED real, guard restaurado → 8/8 GREEN de nuevo (ver detalle arriba) | ➖ None needed (mismo patrón ya limpio, sin duplicación nueva) |
+| UI "Editar" en `Productos.tsx` | N/A (sin capa de component-testing en el proyecto, ver justificación arriba) | N/A | N/A | N/A | N/A (verificado por `npm run build` + `npm run typecheck`, ambos limpios) | N/A | ✅ `buildInput()` extraído para no duplicar el parseo entre Crear/Editar |
+
+### Test Summary (PR2 follow-up)
+
+- **Total tests written**: 5
+- **Total tests passing**: 59/59 (proyecto completo, `npx vitest run`: 54 previos + 5 nuevos)
+- **Layers used**: Integration (wiring IPC, `IpcMain` falso) — 5
+- **Approval tests**: 0 (no hubo refactor de comportamiento existente)
+- **Pure functions created**: 0 nuevas en producción (`assertRole` ya existía; el follow-up solo agrega cobertura y UI)
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run src/main/ipc/catalog.test.ts → 8/8 (antes del follow-up: 3/3)
+npx vitest run                              → 59/59 (11 archivos)
+npm run typecheck                           → tsc --noEmit limpio (node + web)
+npm run build                               → typecheck + electron-vite build OK
+```
+
+## Status (PR2 follow-up)
+
+Ambos hallazgos WARNING accionables de `verify-report-pr2.md` (1 y 2)
+resueltos. El WARNING 3 (housekeeping de `state.yaml`) también se resolvió
+actualizando `pr_plan[PR2].followup` y `phases.apply.current_pr`. Sin cambios
+en Fases 5-11. Listo para que el usuario decida si re-verificar este
+follow-up puntual o continuar directo con PR3 (Fases 5-6, Ventas + Caja).

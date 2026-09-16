@@ -12,7 +12,10 @@ pr_plan:
     verdict: PASS (0 CRITICAL, 2 WARNING no bloqueantes, 2 SUGGESTION)
   - id: PR2
     scope: "Auth PIN + Catalogo (Fases 3-4)"
-    status: in_progress
+    status: done_verified
+    verify_report: verify-report-pr2.md
+    verdict: PASS (0 CRITICAL, 3 WARNING no bloqueantes, 4 SUGGESTION) - guard de rol confirmado real e infalsificable
+    followup: "RESUELTO - boton Editar en Productos.tsx + 5 tests de guard IPC faltantes (ver apply-progress.md seccion 'PR2 follow-up')"
   - id: PR3
     scope: "Ventas + Caja (Fases 5-6)"
     status: pending
@@ -51,7 +54,7 @@ phases:
   apply:
     status: in_progress
     depends_on: [tasks]
-    current_pr: PR2
+    current_pr: PR2-followup-done
     open_decisions:
       - "Boton de respaldo manual del .sqlite en panel Admin - el usuario lo esta pensando, NO implementar hasta que confirme"
   verify:
