@@ -12,16 +12,34 @@ interface ProductFormState {
 
 const EMPTY_FORM: ProductFormState = { name: '', price: '', cost: '', departmentId: '', barcode: '' }
 
+function toFormState(product: Product): ProductFormState {
+  return {
+    name: product.name,
+    price: String(product.price),
+    cost: product.cost === null ? '' : String(product.cost),
+    departmentId: String(product.departmentId),
+    barcode: product.barcode ?? ''
+  }
+}
+
 /**
  * Pantalla de Productos (tasks.md 4.8, Admin only). Formulario CRUD: nombre,
  * precio, costo (opcional -- catalog-management/spec.md "Product Cost and
  * Missing-Cost Handling"), departamento (obligatorio, fijo por producto) y
  * codigo de barras (opcional).
+ *
+ * PR2 follow-up (verify-report-pr2.md WARNING 2): el mismo formulario de
+ * "Crear" se reutiliza para "Editar" (catalog-management/spec.md "Single
+ * Fixed Department per Product" > "Reasignar producto a otro departamento")
+ * -- "Editar" precarga el formulario con el producto elegido; `editingId`
+ * decide si el submit llama `createProduct` o `updateProduct` (backend ya
+ * existia y ya estaba probado, solo faltaba la UI para invocarlo).
  */
 function Productos(): React.JSX.Element {
   const [products, setProducts] = useState<Product[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function reload(): Promise<void> {
@@ -33,25 +51,53 @@ function Productos(): React.JSX.Element {
     reload()
   }, [])
 
-  async function handleCreate(): Promise<void> {
+  function buildInput(): {
+    name: string
+    price: number
+    cost: number | null
+    departmentId: number | null
+    barcode: string | null
+  } {
+    return {
+      name: form.name.trim(),
+      price: Number(form.price),
+      cost: form.cost.trim() ? Number(form.cost) : null,
+      departmentId: form.departmentId ? Number(form.departmentId) : null,
+      barcode: form.barcode.trim() || null
+    }
+  }
+
+  async function handleSave(): Promise<void> {
     setError(null)
     try {
-      await api.catalog.createProduct({
-        name: form.name.trim(),
-        price: Number(form.price),
-        cost: form.cost.trim() ? Number(form.cost) : null,
-        departmentId: form.departmentId ? Number(form.departmentId) : null,
-        barcode: form.barcode.trim() || null
-      })
+      if (editingId !== null) {
+        await api.catalog.updateProduct(editingId, buildInput())
+      } else {
+        await api.catalog.createProduct(buildInput())
+      }
       setForm(EMPTY_FORM)
+      setEditingId(null)
       await reload()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     }
   }
 
+  function handleEdit(product: Product): void {
+    setError(null)
+    setEditingId(product.id)
+    setForm(toFormState(product))
+  }
+
+  function handleCancelEdit(): void {
+    setError(null)
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+  }
+
   async function handleDelete(product: Product): Promise<void> {
     await api.catalog.deleteProduct(product.id)
+    if (editingId === product.id) handleCancelEdit()
     await reload()
   }
 
@@ -63,6 +109,9 @@ function Productos(): React.JSX.Element {
         {products.map((product) => (
           <li key={product.id}>
             {product.name} - ${product.price} (costo: {product.cost ?? 'sin capturar'})
+            <button type="button" onClick={() => handleEdit(product)}>
+              Editar
+            </button>
             <button type="button" onClick={() => handleDelete(product)}>
               Eliminar
             </button>
@@ -72,7 +121,7 @@ function Productos(): React.JSX.Element {
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          handleCreate()
+          handleSave()
         }}
       >
         <input
@@ -108,7 +157,12 @@ function Productos(): React.JSX.Element {
           onChange={(event) => setForm({ ...form, barcode: event.target.value })}
           placeholder="Codigo de barras (opcional)"
         />
-        <button type="submit">Guardar producto</button>
+        <button type="submit">{editingId !== null ? 'Guardar cambios' : 'Guardar producto'}</button>
+        {editingId !== null && (
+          <button type="button" onClick={handleCancelEdit}>
+            Cancelar
+          </button>
+        )}
       </form>
     </section>
   )
