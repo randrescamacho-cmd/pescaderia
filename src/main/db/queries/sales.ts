@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Sale, SaleInput, SaleLineInput, SalePaymentInput } from '../../../shared/ipc-types'
-import { computeSaleTotal, paymentsMatchTotal } from '../../../shared/sale-math'
+import { computeLineTotal, computeSaleTotal, paymentsMatchTotal } from '../../../shared/sale-math'
 import { getProductById } from './products'
 
 interface SaleRow {
@@ -184,7 +184,7 @@ export function createSale(db: DatabaseSync, input: SaleInput): Sale {
     const saleId = Number(saleResult.lastInsertRowid)
 
     for (const { line, product } of resolvedLines) {
-      const lineTotal = line.quantity * product.price
+      const lineTotal = computeLineTotal({ quantity: line.quantity, unitPrice: product.price })
       db.prepare(
         `INSERT INTO sale_lines (sale_id, product_id, department_id, quantity, unit_price, unit_cost, line_total)
          VALUES (?, ?, ?, ?, ?, ?, ?)`

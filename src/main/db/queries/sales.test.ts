@@ -151,6 +151,22 @@ describe('createSale', () => {
     ])
   })
 
+  it('rounds line_total to cents for a fractional quantity sold by weight (0.733 kg x $85.55 = $62.70815 raw)', () => {
+    const db = openMigratedDb()
+    const shift = openShift(db, 1, 500)
+    const departmentId = mariscosDepartmentId(db)
+    const product = createProduct(db, { name: 'Camaron a granel', price: 85.55, departmentId })
+
+    const sale = createSale(db, {
+      shiftId: shift.id,
+      lines: [{ productId: product.id, quantity: 0.733 }],
+      payments: [{ method: 'efectivo', amount: 62.71 }]
+    })
+
+    expect(sale.lines[0].lineTotal).toBe(62.71)
+    expect(sale.total).toBe(62.71)
+  })
+
   it('creates a sale with multiple lines totaling the sum of subtotals ($50+$30=$80)', () => {
     const db = openMigratedDb()
     const shift = openShift(db, 1, 500)

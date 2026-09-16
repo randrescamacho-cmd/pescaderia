@@ -679,3 +679,126 @@ npm run dev        → main+preload build OK, renderer sirve en localhost:5173,
 (Fase 1-6) del cambio `pos-inicial`. Listo para `sdd-verify` de este work
 unit, o para continuar directo con PR4 (Fases 7-9, Créditos + Corte del Día
 + Impresión) según la estrategia de entrega del usuario.
+
+---
+
+# PR3 fix: tolerancia de centavos
+
+## Scope de este fix
+
+Corrección puntual de un hallazgo **CRITICAL** de `verify-report-pr3.md`
+(verificación independiente), antes de iniciar PR4. NO es un PR nuevo del
+plan de 5 — es un fix de bajo riesgo sobre `src/shared/sale-math.ts` que
+PR4 necesita como base correcta antes de construir crédito (Fase 7) y corte
+del día (Fase 8) sobre el mismo módulo de matemática de dinero.
+
+## El bug
+
+`AMOUNT_EPSILON = 0.01` (un centavo completo) en `paymentsMatchTotal`
+permitía que una venta con pago dividido cerrara aunque faltara hasta $0.01
+real. Ejemplo confirmado por el verificador ejecutando la función
+directamente:
+
+```
+paymentsMatchTotal([{amount: 33.32}], 33.33)  -> true (debía ser false)
+paymentsMatchTotal([{amount: 199.99}], 200)   -> true (debía ser false)
+```
+
+Esto viola literalmente `sales-transactions/spec.md` ("Split Payment per
+Sale": "La suma de las porciones MUST ser igual al total... el sistema
+MUST rechazar el cierre si la suma no coincide"). El ruido REAL de punto
+flotante en estos cálculos es del orden de 1e-13 a 1e-15 (confirmado con
+`$11.11 x3 = $33.33`, diferencia real ~5e-15) — un centavo completo de
+tolerancia no es "ruido de flotantes", es un descuento real no autorizado.
+
+Causa raíz adicional (mencionada por el verificador): `computeLineTotal`
+no redondeaba a centavos, así que un producto vendido por peso (cantidad
+fraccionaria, ej. 0.733 kg) podía persistir un `line_total` con más de 2
+decimales de precisión monetaria real (ej. 62.6715) en `sale_lines`. El
+epsilon de 1 centavo probablemente compensaba ese problema por accidente
+en vez de resolverlo con redondeo explícito.
+
+## La corrección
+
+1. **`AMOUNT_EPSILON` reducido de `0.01` a `0.005`** (medio centavo) en
+   `src/shared/sale-math.ts`. Justificación en el comentario del código:
+   medio centavo cubre con margen generoso el ruido real de flotantes
+   (~1e-13) y el residual de sumar varias `line_total` ya redondeadas,
+   sin llegar nunca a absorber un faltante real (siempre >= 1 centavo =
+   0.01, muy por encima de 0.005).
+2. **Redondeo explícito a centavos en dos puntos**:
+   - `computeLineTotal` (`src/shared/sale-math.ts`): redondea
+     `quantity * unitPrice` a centavos con `Math.round(x * 100) / 100`.
+     Este es el punto de cálculo real usado tanto por la validación pura
+     como por `createSale` (`src/main/db/queries/sales.ts`) al insertar
+     `sale_lines.line_total` — se corrigió `sales.ts` para reusar
+     `computeLineTotal` en vez de recalcular `line.quantity * product.price`
+     sin redondear (bug de duplicación de lógica, mismo hallazgo).
+   - `computeSaleTotal`: redondea el resultado final de la suma, como
+     defensa adicional contra el residual de punto flotante de sumar
+     varios floats de 2 decimales (mismo fenómeno que `0.1 + 0.2`).
+   - Decisión: se redondea en AMBOS puntos (línea y suma), no solo al
+     validar el total contra los pagos — porque `line_total` se persiste
+     tal cual en la base de datos (consultable después, ej. reportes de
+     Fase 8), así que el valor persistido también debe estar en centavos
+     reales, no solo el valor usado para comparar en memoria.
+3. **Revisión de reutilización del mismo patrón** (punto 4 del fix):
+   `src/main/db/queries/cash.ts` (`computeExpectedCash`, conciliación de
+   caja) NO usa ningún epsilon ni comparación de tolerancia — calcula la
+   diferencia exacta (`countedCash - expectedCash`) y la persiste/muestra
+   tal cual, sin rechazar el cierre por diferencia (comportamiento
+   correcto y ya verificado en PR3, spec permite cierre con faltante). No
+   se encontró otro lugar del código con el mismo patrón de tolerancia.
+   `SplitPaymentModal.tsx` reutiliza `paymentsMatchTotal` del módulo
+   compartido (no duplica la lógica), así que se beneficia del fix
+   automáticamente sin cambios propios.
+
+## Evidencia TDD (RED → GREEN)
+
+### TDD Cycle Evidence
+
+| Comportamiento | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| `paymentsMatchTotal` rechaza faltante de 1 centavo | `src/shared/sale-math.test.ts` | Unit | ✅ 12/12 (tests previos de sale-math) | ✅ Escrito (`$33.32 vs $33.33` y `$199.99 vs $200` fallaban con epsilon=0.01) | ✅ Pasa tras reducir `AMOUNT_EPSILON` a 0.005 | ✅ 4 casos (shortfall $33.32, shortfall $199.99, split legítimo 3x$11.11, ruido $0.1+$0.2 ya existente) | ➖ None needed (constante + fórmula ya simples) |
+| `computeLineTotal` redondea a centavos (peso fraccionario) | `src/shared/sale-math.test.ts` | Unit | ✅ 12/12 | ✅ Escrito (0.733kg x $85.50/$85.55 fallaban sin redondeo) | ✅ Pasa tras agregar `roundToCents` | ✅ 2 casos (redondeo hacia abajo 62.6715→62.67, redondeo hacia arriba 62.70815→62.71) | ➖ None needed |
+| `createSale` persiste `line_total` redondeado (integración real) | `src/main/db/queries/sales.test.ts` | Integration (`node:sqlite` real) | ✅ 19/19 (tests previos de sales.test.ts) | ✅ Escrito (0.733kg x $85.55 → esperaba 62.71, código actual daba 62.708149999999996) | ✅ Pasa tras reusar `computeLineTotal` en `sales.ts` en vez de multiplicación cruda | ➖ Single (un solo caso de integración basta — la lógica de redondeo ya está triangulada a nivel unit en `sale-math.test.ts`; este test solo prueba el wiring real) | ➖ None needed |
+
+### Test Summary
+
+- **Total tests nuevos**: 6 (5 en `sale-math.test.ts` + 1 en `sales.test.ts`)
+- **Total tests pasando (antes del fix, baseline/safety net)**: 135/135
+- **Total tests pasando (después del fix)**: 141/141 (`npx vitest run`, 19 archivos)
+- **Layers used**: Unit (5, sale-math puro), Integration (1, `node:sqlite` real vía `createSale`)
+- **Approval tests**: N/A — no fue un refactor de comportamiento existente sin tests, fue una corrección de bug con tests nuevos que fallan contra el código viejo (RED real) y pasan contra el código corregido (GREEN real)
+- **Pure functions modificadas**: `computeLineTotal`, `computeSaleTotal`, `paymentsMatchTotal` (constante `AMOUNT_EPSILON`); función privada nueva `roundToCents`
+- **Mocks usados**: 0
+
+## Comandos verificados (todos pasan)
+
+```
+npx vitest run     → 19 files, 141/141 tests passed (135 previos + 6 nuevos)
+npm run typecheck  → tsc --noEmit limpio (node + web)
+npm run build      → typecheck + electron-vite build OK (renderer bundle 671.16KB)
+```
+
+## Archivos modificados
+
+| Archivo | Qué cambió |
+|---|---|
+| `src/shared/sale-math.ts` | `AMOUNT_EPSILON` 0.01 → 0.005 (con justificación en comentario); `computeLineTotal` y `computeSaleTotal` ahora redondean a centavos vía `roundToCents` (función privada nueva) |
+| `src/shared/sale-math.test.ts` | +5 tests: 2 de redondeo de `computeLineTotal` (peso fraccionario, redondeo arriba/abajo), 3 de `paymentsMatchTotal` (2 shortfalls de 1 centavo que ahora se rechazan, 1 split legítimo 3x$11.11 que sigue aceptándose) |
+| `src/main/db/queries/sales.ts` | `createSale` ahora reusa `computeLineTotal` de `shared/sale-math.ts` para calcular `line_total` en vez de `line.quantity * product.price` sin redondear |
+| `src/main/db/queries/sales.test.ts` | +1 test de integración: `line_total` redondeado a centavos para cantidad fraccionaria, verificado contra SQLite real |
+
+## Deviations from Design
+
+Ninguna — es una corrección de bug dentro del mismo módulo (`sale-math.ts`)
+y del mismo criterio ya establecido en `design.md` (matemática de dinero
+compartida entre main/renderer), no un cambio de arquitectura.
+
+## Status (PR3 fix)
+
+Fix completo. 141/141 tests pasan (135 previos + 6 nuevos), build y
+typecheck limpios. El hallazgo CRITICAL de `verify-report-pr3.md` queda
+resuelto. Listo para iniciar PR4 (Fases 7-9) sobre una base de matemática
+de dinero corregida.

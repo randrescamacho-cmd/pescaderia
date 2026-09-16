@@ -9,6 +9,14 @@ describe('computeLineTotal', () => {
   it('handles fractional quantities (sold by weight)', () => {
     expect(computeLineTotal({ quantity: 1.5, unitPrice: 100 })).toBe(150)
   })
+
+  it('rounds a fractional-weight quantity down to the nearest cent (0.733 kg x $85.50 = $62.6715 raw)', () => {
+    expect(computeLineTotal({ quantity: 0.733, unitPrice: 85.5 })).toBe(62.67)
+  })
+
+  it('rounds a fractional-weight quantity up to the nearest cent (0.733 kg x $85.55 = $62.70815 raw)', () => {
+    expect(computeLineTotal({ quantity: 0.733, unitPrice: 85.55 })).toBe(62.71)
+  })
 })
 
 describe('computeSaleTotal', () => {
@@ -50,5 +58,17 @@ describe('paymentsMatchTotal', () => {
 
   it('tolerates float rounding noise within half a cent', () => {
     expect(paymentsMatchTotal([{ amount: 0.1 }, { amount: 0.2 }], 0.3)).toBe(true)
+  })
+
+  it('accepts a legitimate three-way split that sums exactly via float noise ($11.11 x3 = $33.33)', () => {
+    expect(paymentsMatchTotal([{ amount: 11.11 }, { amount: 11.11 }, { amount: 11.11 }], 33.33)).toBe(true)
+  })
+
+  it('rejects a shortfall of exactly one cent ($33.32 paid vs $33.33 total)', () => {
+    expect(paymentsMatchTotal([{ amount: 33.32 }], 33.33)).toBe(false)
+  })
+
+  it('rejects a shortfall of exactly one cent ($199.99 paid vs $200 total)', () => {
+    expect(paymentsMatchTotal([{ amount: 199.99 }], 200)).toBe(false)
   })
 })
