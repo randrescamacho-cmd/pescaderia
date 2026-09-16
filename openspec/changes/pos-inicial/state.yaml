@@ -31,7 +31,7 @@ pr_plan:
   - id: PR5
     scope: "Empaquetado/CI + Validacion en sitio (Fases 10-11)"
     status: in_progress
-git: local repo initialized, root commit dc5656e (docs SDD)
+git: local repo initialized, root commit dc5656e (docs SDD); remoto en https://github.com/randrescamacho-cmd/pescaderia (main), publico
 
 phases:
   explore:
