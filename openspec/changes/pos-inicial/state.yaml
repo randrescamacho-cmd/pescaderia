@@ -30,7 +30,8 @@ pr_plan:
     accepted_risk: "WARNING-2: sales:create + credit:grant no son atomicos (2 llamadas IPC separadas). Riesgo real dado que el local pierde luz seguido - si se corta la energia entre ambas llamadas, la venta queda registrada pero el saldo de credito del cliente no se actualiza. Decision EXPLICITA del usuario: diferir, no implementar ahora. Ver apply-progress.md seccion 'RIESGO ACEPTADO Y DIFERIDO' para sintomas/deteccion/remediacion si se retoma."
   - id: PR5
     scope: "Empaquetado/CI + Validacion en sitio (Fases 10-11)"
-    status: in_progress
+    status: apply_done_pending_verify
+    note: "Fase 10 (6/6) implementada: .github/workflows/build-mac.yml + README.md + docs/validacion-sitio.md. Sintaxis YAML validada localmente con js-yaml, NO confirmado en runner real de GitHub Actions (requiere revisar la pestana Actions tras el push/tag - ver apply-progress.md seccion PR5 'Limite real de esta sesion'). Fase 11 (5 tareas) entregada como checklist accionable (docs/validacion-sitio.md) deliberadamente SIN marcar [x] en tasks.md - describe verificacion fisica en la Mac real del cliente, no ejecutable desde esta sesion. 216/216 tests sin cambio (PR5 no toca src/)."
 git: local repo initialized, root commit dc5656e (docs SDD); remoto en https://github.com/randrescamacho-cmd/pescaderia (main), publico
 
 phases:

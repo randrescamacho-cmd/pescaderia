@@ -122,17 +122,26 @@ Chain strategy: pending
 
 ## Phase 10: Empaquetado y CI
 
-- [ ] 10.1 `src/main/preload.ts` — `contextBridge.exposeInMainWorld` full API surface
-- [ ] 10.2 `src/main/index.ts` — `BrowserWindow` lifecycle, `contextIsolation:true`, `nodeIntegration:false`
-- [ ] 10.3 `.github/workflows/build-mac.yml` per design.md (macos-latest, arm64/x64 matrix)
-- [ ] 10.4 Ad-hoc codesign step (`codesign --force --deep --sign -`) before dmg packaging
-- [ ] 10.5 `--prepackaged` dmg build step from signed `.app`
-- [ ] 10.6 Tag-triggered upload to GitHub Releases
+- [x] 10.1 `src/main/preload.ts` — `contextBridge.exposeInMainWorld` full API surface (ya completo desde PR4 — `preload.ts` expone auth/catalog/sales/cash/customers/credit/reports/print; confirmado, sin cambios en PR5)
+- [x] 10.2 `src/main/index.ts` — `BrowserWindow` lifecycle, `contextIsolation:true`, `nodeIntegration:false` (ya completo desde PR1 — confirmado, sin cambios en PR5)
+- [x] 10.3 `.github/workflows/build-mac.yml` per design.md (macos-latest, arm64/x64 matrix) — sintaxis YAML validada localmente con `js-yaml`; ver apply-progress.md "PR5" para deviations documentadas vs. el borrador de design.md (Node 24 en vez de 22, trigger de push a `main` agregado)
+- [x] 10.4 Ad-hoc codesign step (`codesign --force --deep --sign -`) before dmg packaging
+- [x] 10.5 `--prepackaged` dmg build step from signed `.app`
+- [x] 10.6 Tag-triggered upload to GitHub Releases
 
 ## Phase 11: Validación en Sitio
 
-- [ ] 11.1 Confirm exact thermal printer model + macOS version on client Mac
-- [ ] 11.2 Print real test ticket, verify 80mm layout with real product names
-- [ ] 11.3 Scan real barcode end-to-end with USB-HID scanner
-- [ ] 11.4 Verify Gatekeeper bypass (right-click → Abrir) unlocks normal double-click launch after
-- [ ] 11.5 Full offline E2E: abrir turno → venta con pago dividido → cerrar turno → imprimir corte
+Estas 5 tareas describen verificación física en la Mac real del cliente
+(impresora, escáner, red, Gatekeeper) — **no son ejecutables desde esta
+sesión** (sin acceso a esa Mac ni al hardware). Lo entregable de PR5 para
+esta fase es el checklist accionable (`docs/validacion-sitio.md`) que
+permite a quien SÍ esté físicamente en el sitio ejecutar y marcar cada
+punto. Las casillas de abajo se dejan deliberadamente sin marcar — marcarlas
+`[x]` sin haber estado en la Mac real del cliente sería reportar una
+confirmación falsa de algo no verificado.
+
+- [ ] 11.1 Confirm exact thermal printer model + macOS version on client Mac — checklist listo en `docs/validacion-sitio.md` sección 1; pendiente de ejecución real en sitio
+- [ ] 11.2 Print real test ticket, verify 80mm layout with real product names — checklist listo en `docs/validacion-sitio.md` sección 3; pendiente de ejecución real en sitio
+- [ ] 11.3 Scan real barcode end-to-end with USB-HID scanner — checklist listo en `docs/validacion-sitio.md` sección 4; pendiente de ejecución real en sitio
+- [ ] 11.4 Verify Gatekeeper bypass (right-click → Abrir) unlocks normal double-click launch after — checklist listo en `docs/validacion-sitio.md` sección 2 y procedimiento paso a paso en `README.md`; pendiente de ejecución real en sitio
+- [ ] 11.5 Full offline E2E: abrir turno → venta con pago dividido → cerrar turno → imprimir corte — checklist listo en `docs/validacion-sitio.md` secciones 5 y 7; pendiente de ejecución real en sitio
