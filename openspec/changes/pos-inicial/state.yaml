@@ -30,8 +30,10 @@ pr_plan:
     accepted_risk: "WARNING-2: sales:create + credit:grant no son atomicos (2 llamadas IPC separadas). Riesgo real dado que el local pierde luz seguido - si se corta la energia entre ambas llamadas, la venta queda registrada pero el saldo de credito del cliente no se actualiza. Decision EXPLICITA del usuario: diferir, no implementar ahora. Ver apply-progress.md seccion 'RIESGO ACEPTADO Y DIFERIDO' para sintomas/deteccion/remediacion si se retoma."
   - id: PR5
     scope: "Empaquetado/CI + Validacion en sitio (Fases 10-11)"
-    status: apply_done_pending_verify
-    note: "Fase 10 (6/6) implementada: .github/workflows/build-mac.yml + README.md + docs/validacion-sitio.md. Sintaxis YAML validada localmente con js-yaml, NO confirmado en runner real de GitHub Actions (requiere revisar la pestana Actions tras el push/tag - ver apply-progress.md seccion PR5 'Limite real de esta sesion'). Fase 11 (5 tareas) entregada como checklist accionable (docs/validacion-sitio.md) deliberadamente SIN marcar [x] en tasks.md - describe verificacion fisica en la Mac real del cliente, no ejecutable desde esta sesion. 216/216 tests sin cambio (PR5 no toca src/)."
+    status: done_verified
+    verify_report: verify-report-pr5.md
+    verdict: "PASS (0 CRITICAL, 0 WARNING, 0 SUGGESTION en PR5). Fase 11 deliberadamente sin marcar [x] - requiere Mac fisica real, no es un defecto."
+    global_verdict: "PASS WITH WARNINGS (no bloqueantes) - 5 PRs completos, 216/216 tests, cero atribucion de IA en ~27 commits. 4 de 6 Success Criteria (proposal.md) son codigo-completo+test-verificado pero pendientes de confirmacion real (runner CI + Mac fisica); criterio 4 (roles) confirmado al 100%; criterio 6 (credito) funciona en caso normal con 1 riesgo aceptado (atomicidad, ver PR4)."
 git: local repo initialized, root commit dc5656e (docs SDD); remoto en https://github.com/randrescamacho-cmd/pescaderia (main), publico
 
 phases:
@@ -59,14 +61,15 @@ phases:
       chained_prs_recommended: true
       decision_needed_before_apply: true
   apply:
-    status: in_progress
+    status: done
     depends_on: [tasks]
-    current_pr: PR5
+    current_pr: null
     open_decisions:
       - "Boton de respaldo manual del .sqlite en panel Admin - el usuario lo esta pensando, NO implementar hasta que confirme"
   verify:
-    status: pending
+    status: done
     depends_on: [apply]
+    note: "Verificacion incremental por PR (verify-report-pr1..pr5.md), no un solo pase final. Veredicto global PASS WITH WARNINGS - ver verify-report-pr5.md 'Veredicto GLOBAL'."
   archive:
     status: pending
     depends_on: [verify]
